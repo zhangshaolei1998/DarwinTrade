@@ -201,7 +201,7 @@ FinAgent        & \ding{55} & \ding{55} & \ding{51} & \ding{51} & \ding{55} & \d
 TradingAgents   & \ding{51} & \ding{55} & \ding{51} & \ding{51} & \ding{51} & \ding{55} \\
 FinCon          & \ding{51} & \ding{51} & \ding{51} & \ding{51} & \ding{55} & \ding{55} \\
 QuantAgent      & \ding{51} & \ding{55} & \ding{55} & \ding{55} & \ding{51} & \ding{51} \\
-TradingGroup    & \ding{51} & \ding{55} & \ding{51} & \ding{51} & \ding{51} & \ding{51} \\
+% TradingGroup    & \ding{51} & \ding{55} & \ding{51} & \ding{51} & \ding{51} & \ding{51} \\
 \textbf{DarwinTrade} & \ding{51} & \ding{51} & \ding{51} & \ding{51} & \ding{51} & \ding{51} \\
 \bottomrule
 \end{tabular}
@@ -435,68 +435,6 @@ set $\Omega$, and the rollback-trigger schema.
 
 \section{Experiments}
 
-\subsection{Experimental Setup}
-
-\paragraph{Evaluation Windows and Trading Protocol}
-We use a fixed daily U.S. equity universe of 20 large-cap stocks: GS, MSFT, HD, V,
-SHW, CAT, MCD, UNH, AXP, AMGN, TRV, CRM, JPM, IBM, HON, BA, AMZN, AAPL, PG, and JNJ.
-This liquid, continuously listed basket remains unchanged across both windows and
-is not reselected using period-specific information. Each evaluation starts with USD
-100,000 and assumes full fills, a 1 bp commission, and 2 bps slippage. Relative
-metrics use SPY as the benchmark where available. Full backtest configuration,
-the LLM backbone and decoding settings, and baseline hyperparameters are reported
-in Appendix~\ref{app:impl}.
-
-The primary evaluation follows the Rising-Market Window distributed with StockBench
-\citep{chen2025stockbench}, spanning 2025-03-03 to 2025-06-30. The chronologically
-later Down-Market Window spans 2025-12-01 to 2026-03-31, during which SPY falls
-$-4.6\%$. The latter changes the market environment while keeping the universe,
-controller code, policy space, execution assumptions, and transaction-cost model
-fixed. It therefore serves as a regime-shift stress test rather than a separately
-tuned setting.
-
-The two windows are evaluated independently. All three evolution states start empty
-and adapt only from feedback observed within that window. Thus, ``the same
-controller'' refers to frozen code and policy bounds whose evolution restarts for
-each evaluation, rather than state transferred from the Rising-Market Window. Each
-window contains 83 decision bars and 82 return intervals.
-
-\paragraph{Data Controls}
-Research evidence, including price bars, news, fundamentals, and social data, is
-admitted only when dated ${<}t$, and prices are adjusted for splits and dividends.
-Analyst reliability is learned only from realized post-decision returns, while
-allocation remains in the deterministic controller. These controls follow recent
-recommendations to make point-in-time admission, execution timing, and intermediate
-decision traces explicit \citep{yao2026execution,qu2026clqt,li2026nextfund}.
-
-\paragraph{Baselines}
-In the Rising-Market Window, we evaluate the complete $2^3$ factorial over analyst,
-tactical, and strategic evolution. The analyst ablation disables online IC updates,
-whereas the no-evolution variant disables all three feedback loops. The Down-Market
-Window extends the evaluation to a later market environment. We compare against
-buy-and-hold, moving-average crossover,
-Bollinger bands, ATR bands, ARIMA \citep{box2015time}, XGBoost
-\citep{chen2016xgboost}, TradingAgents
-\citep{xiao2024tradingagents}, and FinAgent
-\citep{zhang2024finagent}. All methods use the same universe, evaluation windows,
-and transaction-cost model. 
-
-\paragraph{Metrics and Statistical Tests}
-We report cumulative return, maximum drawdown, annualized Sharpe ratio, annualized
-Sortino ratio, annualized information ratio against SPY, and trade count. To compare
-paired daily returns while accounting for serial dependence, we use a moving-block
-bootstrap \citep{kuensch1989jackknife} with block length $5$ and $5000$ resamples,
-reporting the paired excess-return estimate
-$\Delta_{\Sigma}=100\sum_t(r^{\mathrm{ours}}_t-r^{\mathrm{comp}}_t)$ in percentage
-points and $P_+$, the bootstrap probability that $\Delta_{\Sigma}$ is positive.
-
-\subsection{Main Results}
-
-To evaluate whether DarwinTrade remains effective across market regimes, we compare
-it with rule-based, machine-learning, and LLM-agent baselines in the Rising-Market
-and Down-Market Windows under the common 20-stock universe and transaction-cost
-model; Table~\ref{tab:baselines} reports return and risk-adjusted performance, and
-Figure~\ref{fig:equity} shows the NAV trajectories.
 
 \begin{table*}[t]
 \centering
@@ -540,6 +478,71 @@ constructions. Return is cumulative; Sharpe, Sortino, and information ratio are
 annualized. Bold marks the best value in each window.}
 \label{tab:baselines}
 \end{table*}
+
+\subsection{Experimental Setup}
+
+\paragraph{Evaluation Windows and Trading Protocol}
+We use a fixed daily U.S. equity universe of 20 large-cap stocks: GS, MSFT, HD, V,
+SHW, CAT, MCD, UNH, AXP, AMGN, TRV, CRM, JPM, IBM, HON, BA, AMZN, AAPL, PG, and JNJ.
+This liquid, continuously listed basket remains unchanged across both windows and
+is not reselected using period-specific information. Each evaluation starts with USD
+100,000 and assumes full fills, a 1 bp commission, and 2 bps slippage. Relative
+metrics use SPY as the benchmark where available. Full backtest configuration,
+the LLM backbone and decoding settings, and baseline hyperparameters are reported
+in Appendix~\ref{app:impl}.
+
+The primary evaluation follows the Rising-Market Window distributed with StockBench
+\citep{chen2025stockbench}, spanning 2025-03-03 to 2025-06-30. The chronologically
+later Down-Market Window spans 2025-12-01 to 2026-03-31, during which SPY falls
+$-4.6\%$. The latter changes the market environment while keeping the universe,
+controller code, policy space, execution assumptions, and transaction-cost model
+fixed. It therefore serves as a regime-shift stress test rather than a separately
+tuned setting.
+
+The two windows are evaluated independently. All three evolution states start empty
+and adapt only from feedback observed within that window. Thus, ``the same
+controller'' refers to frozen code and policy bounds whose evolution restarts for
+each evaluation, rather than state transferred from the Rising-Market Window. Each
+window contains 83 decision bars and 82 return intervals.
+
+
+\paragraph{Data Controls}
+Research evidence, including price bars, news, fundamentals, and social data, is
+admitted only when dated ${<}t$, and prices are adjusted for splits and dividends.
+Analyst reliability is learned only from realized post-decision returns, while
+allocation remains in the deterministic controller. These controls follow recent
+recommendations to make point-in-time admission, execution timing, and intermediate
+decision traces explicit \citep{yao2026execution,qu2026clqt,li2026nextfund}.
+
+\paragraph{Baselines}
+In the Rising-Market Window, we evaluate the complete $2^3$ factorial over analyst,
+tactical, and strategic evolution. The analyst ablation disables online IC updates,
+whereas the no-evolution variant disables all three feedback loops. The Down-Market
+Window extends the evaluation to a later market environment. We compare against
+buy-and-hold, moving-average crossover,
+Bollinger bands, ATR bands, ARIMA \citep{box2015time}, XGBoost
+\citep{chen2016xgboost}, TradingAgents
+\citep{xiao2024tradingagents}, and FinAgent
+\citep{zhang2024finagent}. All methods use the same universe, evaluation windows,
+and transaction-cost model. 
+
+\paragraph{Metrics and Statistical Tests}
+We report cumulative return, maximum drawdown, annualized Sharpe ratio, annualized
+Sortino ratio, annualized information ratio against SPY, and trade count. To compare
+paired daily returns while accounting for serial dependence, we use a moving-block
+bootstrap \citep{kuensch1989jackknife} with block length $5$ and $5000$ resamples,
+reporting the paired excess-return estimate
+$\Delta_{\Sigma}=100\sum_t(r^{\mathrm{ours}}_t-r^{\mathrm{comp}}_t)$ in percentage
+points and $P_+$, the bootstrap probability that $\Delta_{\Sigma}$ is positive.
+
+\subsection{Main Results}
+
+To evaluate whether DarwinTrade remains effective across market regimes, we compare
+it with rule-based, machine-learning, and LLM-agent baselines in the Rising-Market
+and Down-Market Windows under the common 20-stock universe and transaction-cost
+model; Table~\ref{tab:baselines} reports return and risk-adjusted performance, and
+Figure~\ref{fig:equity} shows the NAV trajectories.
+
 
 \paragraph{Comparison with Baselines}
 DarwinTrade performs consistently across regimes ($12.1\%$/$2.07$ Sharpe rising,
