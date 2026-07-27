@@ -162,10 +162,11 @@ Yu, Y.; Li, H.; Chen, Z.; Jiang, Y.; Li, Y.; Zhang, D.; Liu, R.; Suchow, J.~W.;
   Memory and Character Design.
 \newblock arXiv:2311.13743.
 
-\bibitem[{Yu et~al.(2024)Yu, Yao, Li, Deng, Cao, Chen, Suchow, Liu, Cui, Zhang
-  et~al.}]{yu2024fincon}
+\bibitem[{Yu et~al.(2024)Yu, Yao, Li, Deng, Cao, Chen, Suchow, Liu, Cui, Xu,
+  Zhang, Subbalakshmi, Xiong, He, Huang, Li, and Xie}]{yu2024fincon}
 Yu, Y.; Yao, Z.; Li, H.; Deng, Z.; Cao, Y.; Chen, Z.; Suchow, J.~W.; Liu, R.;
-  Cui, Z.; Zhang, D.; et~al. 2024.
+  Cui, Z.; Xu, Z.; Zhang, D.; Subbalakshmi, K.; Xiong, G.; He, Y.; Huang, J.;
+  Li, D.; and Xie, Q. 2024.
 \newblock {FinCon}: A Synthesized {LLM} Multi-Agent System with Conceptual
   Verbal Reinforcement for Enhanced Financial Decision Making.
 \newblock \emph{arXiv preprint arXiv:2407.06567}.
