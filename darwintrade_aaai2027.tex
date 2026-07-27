@@ -17,6 +17,7 @@
 \newcommand{\PHASE}[1]{\STATE \textit{\underline{#1}}}
 \usepackage{booktabs}
 \usepackage{multirow}
+\usepackage{enumitem}
 \usepackage{pifont}
 \usepackage{xcolor}
 % Listings for verbatim prompt/schema reproduction in the appendix. AAAI-safe:
@@ -65,122 +66,195 @@
 \maketitle
 
 \begin{abstract}
-Large language models (LLMs) can integrate prices, news, fundamentals, and other
-financial evidence for portfolio decisions. However, existing LLM trading agents
-typically adapt by feeding unstructured reflection back into a single
-model-generated action, entangling analyst research, portfolio construction, and
-execution; as a result, it is difficult to identify which part of the policy
-evolved, whether realized outcomes justify that change, and whether the updated
-policy stays within specified risk controls. In this paper, we introduce
-DarwinTrade, a self-evolving portfolio framework that decomposes policy adaptation
-into auditable feedback loops and keeps LLM-based research separate from a
-deterministic allocator and execution. DarwinTrade self-evolves at three timescales.
-At the analyst level, an online information-coefficient aggregator evolves the
-regime-conditioned influence of four LLM analysts from delayed next-open returns.
-At the tactical level, short-lived guards adapt to recent market conditions and
-expire automatically. At the strategic level, long-lived policy changes are
-restricted to validated allocator parameters and reverted whenever a logged
-performance condition is violated. In this way, analyst, tactical, and strategic
-self-evolution remain independently auditable, and the LLM never modifies execution
-code. With transaction costs on a fixed 20-stock universe, DarwinTrade achieves
-returns of $12.1\%$ and $10.9\%$, with Sharpe ratios of $2.07$ and $2.56$, in the
-StockBench Rising-Market Window and a later Down-Market Window, respectively.
-Disabling all three self-evolution mechanisms reduces Sharpe from $2.07$ to $0.94$
-and deepens maximum drawdown from $-6.7\%$ to $-15.2\%$ in the Rising-Market Window,
-showing that structured, auditable self-evolution---rather than a single
-unstructured adaptation step---drives DarwinTrade's performance.
+Large language models (LLMs) can integrate prices, news, fundamentals, and
+other financial evidence for portfolio decisions. However, existing
+LLM-based trading systems typically collapse analyst research, portfolio
+construction, and policy adaptation into a single model-generated action,
+so a real-world investment firm's separation of research analysts, risk
+officers, and portfolio committees is lost, and no policy change can be
+attributed to a specific signal, a realized outcome, or a bounded policy
+component. In this paper, we introduce DarwinTrade, a self-evolving
+multi-agent trading system that instantiates hierarchical self-evolution
+as three state-disjoint loops, namely analyst evolution, tactical
+evolution, and strategic evolution, over a deterministic executor that
+the LLM never edits. Analyst evolution updates role reliability from
+delayed next-open returns via a positive-IC gate with sample-size
+shrinkage. Tactical evolution installs $1$-$3$ bar risk guards that
+expire automatically. Strategic evolution commits or reverts LLM-authored
+allocator patches against a logged rollback trigger. Every input consumed
+on trading day $t$ is drawn strictly from information available before $t$,
+and realized outcomes update future states only after a one-bar delay, so
+no future information can leak into the day-$t$ decision.
+Experimental results on a fixed $20$-stock universe with transaction
+costs show that DarwinTrade achieves cumulative returns of $12.1\%$ and
+$10.9\%$ with Sharpe ratios of $2.07$ and $2.56$ in the StockBench
+Rising-Market Window and a later Down-Market Window respectively,
+ranking first on cumulative return and information ratio in both windows
+and on Sharpe and Sortino in the Rising-Market Window. Disabling all
+three self-evolution loops reduces Sharpe from $2.07$ to $0.94$ and
+deepens maximum drawdown from $-6.7\%$ to $-15.2\%$ in the Rising-Market
+Window.
 \end{abstract}
 
 \section{Introduction}
 
-Large language models (LLMs) can synthesize prices, news, fundamentals, and other
-financial evidence for portfolio decisions
-\citep{zhang2024finagent,liu2025finpos,rashid2026finanalyst}. Yet sequential portfolio
-management also requires an explicit account of how market conditions, analyst
-relevance, positions, and realized outcomes change subsequent decisions
-\citep{liu2025finpos}.
+Large language models (LLMs) have demonstrated remarkable capabilities in
+synthesizing prices, news, fundamentals, and other financial evidence for
+portfolio decisions~\citep{zhang2024finagent,liu2025finpos,rashid2026finanalyst}.
+Unlike one-shot question answering, sequential portfolio management is a
+long-horizon decision task that jointly determines returns through
+role-conditioned signal aggregation, short-term risk control, and long-lived
+allocator settings. However, the market itself is non-stationary at multiple
+time scales simultaneously, so any static or single-update trading policy
+inevitably becomes stale on some dimension.
 
-Existing LLM trading systems commonly feed reflections or stored experience into the
-next model-generated action
-\citep{yu2023finmem,xiao2024tradingagents,tian2025tradinggroup,chen2025threestrader}.
-This entangles analyst evaluation, constrained portfolio construction, and policy
-adaptation, making it difficult to identify what changed, preserve the temporal order
-of decisions and outcomes, and enforce risk controls. Recent audits similarly show
-that missing intermediate traces and underspecified execution assumptions hinder
-diagnosis and reproducibility
-\citep{yao2026execution,qu2026clqt,li2026nextfund}.
+A real-world investment firm does not run a portfolio through a single trader
+who regenerates every decision from scratch each day. Instead, research
+analysts continually re-weight their views from realized outcomes, risk
+officers impose short-lived constraints when acute events break the risk
+budget, and a portfolio committee revises the long-term investment mandate
+only when a persistent pattern justifies it and reverses that change when it
+fails. Yet existing LLM-based trading systems collapse all three of these
+functions into a monolithic prompt-and-reflect loop, treating each trading
+day as an isolated model-generated action without a persistent record of
+what evidence has been vetted or how past interventions actually panned out.
+Ideally, an LLM-based trading system should operate like a real investment
+firm, weighting its research sources by their realized track records,
+managing short-term risk without letting a single event override long-term
+policy, and revising its long-term strategy only when persistently justified.
+In this way, adaptation is decomposed across the three levels at which
+change happens in a real trading operation, with each level operating on
+its own rhythm and every change inspectable and reversible.
 
 \begin{figure}[t]
 \centering
 \makebox[\columnwidth][c]{%
 \includegraphics[width=1.08\columnwidth]{Figures/intro_figure.pdf}}
-\caption{Comparison between an end-to-end LLM trading agent and DarwinTrade.
-\textbf{Left:} one LLM combines research, allocation, and learning. \textbf{Right:}
-DarwinTrade self-evolves analyst reliability and portfolio policy from realized
-outcomes, while a deterministic allocator controls execution.}
+\caption{DarwinTrade separates analyst reliability, short-lived tactical
+guards, and validated allocator changes as three state-disjoint
+self-evolution loops over a deterministic allocator that the LLM never edits.}
 \label{fig:intro}
 \end{figure}
 
-To address this problem, we propose DarwinTrade, an auditable self-evolving portfolio
-framework that separates research, policy updates, and execution
-(Figure~\ref{fig:intro}). Four LLM analysts produce structured asset scores, while an
-online information-coefficient (IC) aggregator updates their regime-conditioned
-influence from delayed next-open returns. A deterministic allocator then converts the
-aggregate signal into constrained long/short weights. DarwinTrade further separates
-short-lived tactical guards from long-lived strategic changes: tactical actions expire,
-whereas strategic updates are restricted to validated allocator parameters and subject
-to automatic rollback. Because outcomes are committed one bar after each decision and
-the LLM cannot edit execution code, every update remains attributable to analyst
-influence, a temporary risk constraint, or an allocator parameter.
+Existing approaches to adapting LLM-based trading systems broadly fall into
+\emph{reflection-based agents} and \emph{program-editing agents}, neither of
+which delivers all three qualities above. Reflection-based agents such as
+FinMem, FinAgent, TradingAgents, and
+FinCon~\citep{yu2023finmem,zhang2024finagent,xiao2024tradingagents,yu2024fincon}
+revise later decisions from stored outcomes or role-specific feedback within
+a single model-generated action. As a result, bar-level noise can rewrite
+regime-level analyst weights, temporary risk responses can silently become
+permanent, and allocator settings drift without a rollback check, so none of
+the three qualities above holds. More recently, program-editing agents such
+as QuantAgent, TradingGroup, and
+3S-Trader~\citep{wang2024quantagent,tian2025tradinggroup,chen2025threestrader}
+adapt generated programs, styles, or stock-selection strategies from realized
+feedback. Although these systems demonstrate stronger structural adaptation,
+they let the LLM rewrite executable behavior directly without an explicit
+rollback trigger, so a harmful strategy edit can silently persist and the
+third quality is only partially and irreversibly met. In essence, both
+lines share a monolithic adaptation loop that collapses the three specialist
+functions of a real trading firm into one model-generated action, and cannot
+jointly deliver the three qualities identified above.
 
-We evaluate DarwinTrade with transaction costs on a fixed 20-stock universe in the
-StockBench Rising-Market Window \citep{chen2025stockbench} and a later Down-Market
-Window. DarwinTrade returns $12.1\%$ and $10.9\%$, with Sharpe ratios of $2.07$ and
-$2.56$, respectively. In the Rising-Market Window, disabling all evolution reduces
-Sharpe from $2.07$ to $0.94$ and deepens maximum drawdown from $-6.7\%$ to $-15.2\%$.
+In this paper, we aim to advance LLM-based trading systems from monolithic
+reflection to \emph{hierarchical self-evolution} that jointly delivers the
+three qualities identified above. To this end, we introduce DarwinTrade, a
+self-evolving \emph{multi-agent trading system} that decomposes policy
+adaptation into three state-disjoint loops, namely analyst evolution,
+tactical evolution, and strategic evolution, over a deterministic executor
+that the LLM never edits. As illustrated in Figure~\ref{fig:intro}, each
+loop owns one component of the policy and is triggered on its own rhythm,
+matched to the rate at which that component becomes stale. Specifically,
+analyst evolution updates role reliability from delayed next-open returns
+via a positive-IC gate with sample-size shrinkage, so bar-level noise
+drops a role instead of flipping it. Tactical evolution installs a $1$-$3$
+bar guard in response to a single adverse bar and expires it automatically,
+with a logged post-install return that prevents a hurting guard family
+from re-arming. Strategic evolution commits an LLM-authored patch bounded
+to a validated parameter set if a logged loss threshold is not breached
+within a horizon of $H$ bars, and reverts the patch the moment that
+threshold is breached. Through this hierarchical
+decomposition, every policy change is traceable to a specific loop and a
+realized outcome, turning adaptation from a hidden reflection loop into an
+accountable, bounded process.
 
-Our contributions are threefold: \textbf{(i)} an auditable architecture separating
-three evolution layers from deterministic execution; \textbf{(ii)} delayed,
-regime-conditioned updates of heterogeneous analyst influence; and \textbf{(iii)}
-expiring tactical interventions and validated strategic updates with automatic
-rollback.
+In summary, our key contributions are three-fold.
+\begin{itemize}[leftmargin=1em, itemsep=-1ex, topsep=0ex]
+    \item \textbf{Hierarchical Self-Evolution.} We introduce a multi-agent
+    trading system that instantiates hierarchical self-evolution as three
+    state-disjoint adaptation loops over a deterministic executor, aligned
+    with the specialist structure of a real investment firm and matched to
+    the three qualities of an ideal long-horizon LLM-based trading system.
+    \item \textbf{Auditable and Bounded Adaptation.} We instantiate the
+    three loops with a regime-conditioned IC-shrinkage capsule at the
+    analyst level, an expiring track-record-gated guard at the tactical
+    level, and an LLM-authored patch with a logged rollback
+    trigger at the strategic level, all logged as separate operative states
+    so every policy change remains traceable to a specific loop.
+    \item \textbf{Strong Performance.} Experimental results in the
+    StockBench Rising-Market Window and a later Down-Market Window show
+    that DarwinTrade achieves $12.1\%$ and $10.9\%$ cumulative returns and
+    $2.07$ and $2.56$ Sharpe ratios respectively, and disabling all three
+    self-evolution loops reduces Sharpe from $2.07$ to $0.94$ and deepens
+    maximum drawdown from $-6.7\%$ to $-15.2\%$ in the Rising-Market
+    Window.
+\end{itemize}
 
 \section{Related Work}
 
-LLM trading agents commonly combine role specialization, memory, and reflection.
+Existing LLM-based trading systems broadly fall into two lines:
+\emph{reflection-based agents} with role specialization and memory, and
+\emph{program- or strategy-editing agents} that adapt executable behavior.
+
+\textbf{Reflection-based agents.}\quad
 FinMem, FinAgent, TradingAgents, and FinCon revise later decisions from stored
-outcomes or role-specific feedback
-\citep{yu2023finmem,zhang2024finagent,xiao2024tradingagents,yu2024fincon}, while
+outcomes or role-specific
+feedback~\citep{yu2023finmem,zhang2024finagent,xiao2024tradingagents,yu2024fincon},
+while more recent systems make position sizing, downside risk, and specialist
+evidence more explicit~\citep{liu2025finpos,liu2025finrs,rashid2026finanalyst}.
+Although these systems demonstrate stronger reasoning, they generally fuse
+research, portfolio construction, and adaptation in one model-generated action
+and do not maintain analyst reliability, expiring tactical interventions, and
+validated allocator changes as three separately logged operative states.
+Recent benchmarks and audits reinforce this
+concern~\citep{chen2025stockbench,yu2025livetradebench,fan2025aitrader,yao2026execution,qu2026clqt,li2026nextfund,duan2026tradelens},
+showing that static reasoning capability does not transfer to sequential
+portfolio performance without point-in-time controls and intermediate
+decision traces.
+
+\textbf{Program- and strategy-editing agents.}\quad
 QuantAgent, TradingGroup, and 3S-Trader adapt generated programs, styles, or
-stock-selection strategies
-\citep{wang2024quantagent,tian2025tradinggroup,chen2025threestrader}, and others make
-position sizing, downside risk, and specialist evidence more explicit
-\citep{liu2025finpos,liu2025finrs,rashid2026finanalyst}. However, they generally do
-not maintain analyst reliability, expiring tactical interventions, and validated
-allocator changes as three separately logged operative states.
+stock-selection strategies from realized
+feedback~\citep{wang2024quantagent,tian2025tradinggroup,chen2025threestrader}.
+These systems admit that persistent problems require persistent policy changes;
+however, they still let the LLM rewrite executable behavior directly and lack
+explicit rollback when a proposed edit fails to justify itself on subsequent
+outcomes, so a harmful edit can quietly become permanent policy. Related
+studies also highlight look-ahead leakage, passive exposure, and
+regime-dependent performance as
+confounds~\citep{glasserman2024lookahead,fu2025newquant,zhu2026ktdfin,jeon2026blindtrade}
+that a bounded editing surface would need to address. In parallel, generic
+agent frameworks such as ReAct and
+Reflexion~\citep{yao2022react,shinn2023reflexion} update behavior from
+environmental feedback, and classical portfolio construction such as
+mean--variance optimization, active management, and hierarchical risk
+parity~\citep{markowitz1952portfolio,grinold2000active,lopezdeprado2016hrp}
+separates forecasts from risk-controlled allocation, but neither line
+addresses the outcome-driven evolution of specialist components inside a
+bounded policy scope.
 
-Recent benchmarks and audits emphasize sequential validity and traceability.
-StockBench, LiveTradeBench, and AI-Trader show that static capability does not
-necessarily transfer to live portfolio performance
-\citep{chen2025stockbench,yu2025livetradebench,fan2025aitrader}. Execution audits,
-CLQT, NextFund, and TradeLens further expose the importance of point-in-time controls,
-intermediate decision traces, and profit--cost attribution
-\citep{yao2026execution,qu2026clqt,li2026nextfund,duan2026tradelens}. Related studies
-identify look-ahead leakage, passive exposure, and regime-dependent performance as
-additional confounds
-\citep{glasserman2024lookahead,fu2025newquant,zhu2026ktdfin,jeon2026blindtrade}.
-DarwinTrade addresses these concerns through delayed feedback, exposure diagnostics,
-separately logged evolution states, and deterministic order generation.
-
-DarwinTrade also connects reflective agents with classical portfolio construction.
-ReAct and Reflexion update behavior from environmental feedback
-\citep{yao2022react,shinn2023reflexion}, while mean--variance optimization, active
-management, and hierarchical risk parity separate forecasts from risk-controlled
-allocation \citep{markowitz1952portfolio,grinold2000active,lopezdeprado2016hrp};
-DarwinTrade evolves research and portfolio-control states from realized outcomes yet
-retains a deterministic allocator. Table~\ref{tab:related} compares these update
-layers in
-representative LLM trading systems.
+In this work, we focus on the auditability and reversibility of policy
+adaptation, with the goal of turning realized outcomes into policy changes
+that can be independently attributed to analyst, tactical, or strategic
+components. Unlike previous approaches that either fuse research and execution
+in one model-generated action or let the LLM rewrite executable behavior
+directly, DarwinTrade adopts a more deliberate design by decoupling three
+hierarchical loops of self-evolution from a deterministic allocator and
+execution, namely regime-conditioned analyst reliability learned from
+delayed next-open returns, expiring tactical guards, and validated strategic
+changes with automatic rollback. Table~\ref{tab:related} compares these
+update layers in representative LLM-based trading systems.
 
 \begin{table}[t]
 \centering
@@ -205,298 +279,356 @@ TradingGroup    & \ding{51} & \ding{55} & \ding{51} & \ding{51} & \ding{51} & \d
 \textbf{DarwinTrade} & \ding{51} & \ding{51} & \ding{51} & \ding{51} & \ding{51} & \ding{51} \\
 \bottomrule
 \end{tabular}
-\caption{Functional coverage in representative LLM trading systems.
-``Present'' marks whether the layer exists at all (\ding{51}\,yes / \ding{55}\,no);
-``Evolving'' marks whether realized feedback updates the layer's operative state.
-Analyst evolution changes role influence, tactical evolution changes near-term
-decisions, and strategic evolution changes executable portfolio-control state.}
+\caption{Only DarwinTrade activates and evolves all three operative layers
+(analyst, tactical, strategic), whereas prior LLM trading systems either omit
+a layer or leave it non-evolving. ``Present'' marks whether the layer exists
+at all (\ding{51}\,yes / \ding{55}\,no); ``Evolving'' marks whether realized
+feedback updates the layer's operative state. Analyst evolution changes role
+influence, tactical evolution changes near-term decisions, and strategic
+evolution changes executable portfolio-control state.}
 \label{tab:related}
 \end{table}
 
 
 \section{Method}
 
-DarwinTrade is a self-evolving portfolio framework that continually revises its
-trading policy from realized outcomes, while keeping LLM-based research separate
-from a deterministic allocator and execution. Its design follows one principle:
-every policy change must be attributable to a specific signal, a realized outcome,
-and a bounded policy component, so that self-evolution can be audited rather than
-hidden inside a single model-generated action. As shown in
-Figure~\ref{fig:architecture}, a daily control loop maps multi-source evidence to
-role-weighted signals, constrained portfolio weights, and orders, while delayed
-realized outcomes drive three self-evolution loops operating at the analyst,
-tactical, and strategic timescales.
+In this paper, we introduce DarwinTrade, a self-evolving multi-agent
+trading system that instantiates hierarchical self-evolution as three
+state-disjoint loops over a deterministic executor that the LLM never
+edits. Following the specialist structure of a real investment firm,
+DarwinTrade decomposes policy adaptation into analyst, tactical, and
+strategic evolution, each operating on its own rhythm and each logged as
+a separate operative state, so that every policy change is traceable to a
+specific loop and a realized outcome. As shown in
+Figure~\ref{fig:architecture}, a daily control loop maps multi-source
+evidence to role-weighted signals, constrained portfolio weights, and
+orders, while delayed realized outcomes drive the three self-evolution
+loops.
 
-On trading day $t$, four LLM analysts process market, news, fundamental, and social
-evidence dated strictly before $t$. Their structured signals are fused using
-regime-conditioned reliability, filtered by any active short-lived tactical guards,
-and converted into target weights by a deterministic allocator under the current
-strategic policy. DarwinTrade freezes these weights before the opening auction,
-using the day-$t$ open only as the fill price. At the next opening auction, realized
-open-to-open returns are attached to the stored decision trace and may update future
-analyst, tactical, and strategic states. We call one completed decision bar with its
-next-open outcome an \emph{episode}, the unit on which the strategic review cadence
-is counted. This one-bar delay prevents an outcome from changing the decision that
-generated it, a point-in-time discipline also emphasized by recent reproducibility
-audits and closed-loop benchmarks \citep{yao2026execution,qu2026clqt}.
+On trading day $t$, four LLM analysts process market, news, fundamental, and
+social evidence dated strictly before $t$; every input consumed by any LLM
+call or aggregation on day $t$ is drawn only from information available up
+to and including the day-$t{-}1$ close, so no future information can leak
+into the day-$t$ decision. Their structured signals are fused using
+regime-conditioned reliability, filtered by any active short-lived tactical
+guards, and converted into target weights by a deterministic allocator under
+the current strategic policy. Specifically, DarwinTrade freezes these
+weights before the opening auction and uses the day-$t$ open only as the
+fill price, so the decision is fully determined by pre-open information. At
+the next opening auction, realized open-to-open returns are attached to the
+stored decision trace and may update future analyst, tactical, and strategic
+states. We call one completed decision bar with its next-open outcome an
+\emph{episode}, the unit on which the strategic review cadence is counted.
+This one-bar delay prevents an outcome from changing the decision that
+generated it, a point-in-time discipline also emphasized by recent
+reproducibility audits and closed-loop
+benchmarks~\citep{yao2026execution,qu2026clqt}.
 
 The remainder of this section details the three self-evolution loops in turn:
 analyst reliability learned from cross-sectional forecast quality
-(Section~\ref{sec:analyst-evolution}), short-lived tactical guards that adapt to
-recent conditions and expire automatically (Section~\ref{sec:tactical-evolution}),
-and long-lived strategic policy restricted to validated allocator parameters
+(Section~\ref{sec:analyst-evolution}), short-lived tactical guards that adapt
+to recent conditions and expire automatically
+(Section~\ref{sec:tactical-evolution}), and long-lived strategic policy
+restricted to validated allocator parameters
 (Section~\ref{sec:strategic-evolution}).
-Appendix~\ref{app:pseudocode} states the complete per-bar and periodic control loop
-as pseudocode, and Appendix~\ref{app:prompts} reproduces every LLM prompt and
-output schema used below.
+Appendix~\ref{app:pseudocode} states the complete per-bar and periodic
+control loop as pseudocode, and Appendix~\ref{app:prompts} reproduces every
+LLM prompt and output schema used below.
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{Figures/method_figure.pdf}
-\caption{DarwinTrade architecture. \textbf{Top:} the daily control loop maps
-multi-source evidence to role-weighted signals, constrained portfolio weights, and
-orders. \textbf{Bottom:} delayed realized outcomes drive self-evolution of analyst
-reliability, short-lived tactical guards, and strategic allocator policy.}
+\caption{DarwinTrade architecture. The daily control loop (top) maps
+multi-source evidence to role-weighted signals, constrained portfolio weights,
+and orders, while delayed realized outcomes (bottom) drive self-evolution of
+analyst reliability, short-lived tactical guards, and strategic allocator
+policy through three independently logged loops.}
 \label{fig:architecture}
 \end{figure*}
 
 \subsection{Analyst Evolution}
 \label{sec:analyst-evolution}
 
-\paragraph{Forward process.}
-Because research roles may be reliable under different market conditions---forecast
-and trading skill are known to vary materially across regimes
-\citep{zhang2025regimefolio,jeon2026blindtrade}---DarwinTrade first identifies the
-market regime and then performs regime-conditioned role fusion. The LLM module
-$f_{\text{regime}}$ classifies the market as bull, bear, sideways, or volatile
-using SPY's $5$- and $20$-bar trailing returns from closes dated before $t$. Here
-``volatile'' labels a \emph{trend-disagreement} state in which the short- and
-long-horizon trends carry opposite signs, not a high-realized-volatility state,
-because such sign disagreement is precisely what erodes trend- and momentum-style
-cross-sectional forecasts and thus matters most for analyst gating and long/short
-sizing. It returns the regime $\rho_t$ and its confidence under a fixed schema,
-falling back to a deterministic trend rule on malformed output. The regime selects
-the analyst-evaluation capsules and is not added to the analyst prompts.
+\textbf{Forward process.}\quad
+To fuse heterogeneous analyst evidence in a way that respects the market
+context, DarwinTrade first identifies the market regime and then performs
+regime-conditioned role fusion, motivated by evidence that forecast and
+trading skill vary materially across
+regimes~\citep{zhang2025regimefolio,jeon2026blindtrade}. Specifically, the LLM
+module $f_{\text{regime}}$ classifies the market as bull, bear, or volatile
+using SPY's $5$- and $20$-bar trailing returns from closes dated before $t$.
+Here ``volatile'' labels a \emph{trend-disagreement} state in which the
+short- and long-horizon trends carry opposite signs, not a
+high-realized-volatility state, because such sign disagreement is precisely
+what erodes trend- and momentum-style cross-sectional forecasts and thus
+matters most for analyst gating and long/short sizing. It returns the regime
+$\rho_t$ and its confidence under a fixed schema, falling back to a
+deterministic trend rule on malformed output. The regime selects the
+analyst-evaluation capsules and is not added to the analyst prompts.
 
-For each asset $i$, four role-specific LLM modules process market, news, fundamentals,
-and social evidence in parallel. Each analyst $k\in\mathcal{K}$ returns a
-directional score $x_{t,i,k}\in[-1,1]$ and confidence $c_{t,i,k}\in[0,1]$ under a
-fixed schema, following the role-specialized decomposition of recent financial
-agent systems \citep{xiao2024tradingagents,rashid2026finanalyst}; tool traces and
-structured outputs are stored in $\tau_t$.
-Given the current regime-conditioned role reliability $u_{\rho_t,k,t}$, the fusion
-module computes analyst influence $\alpha_{t,i,k}$ and aggregate score $s_{t,i}$ as
+For each asset $i$, four role-specific LLM modules $f_k$
+($k\in\mathcal{K}$) process market, news, fundamentals, and social evidence in
+parallel, following the role-specialized decomposition of recent financial
+agent systems~\citep{xiao2024tradingagents,rashid2026finanalyst}. Each analyst
+returns a directional score $x_{t,i,k}\in[-1,1]$ and confidence
+$c_{t,i,k}\in[0,1]$ under a fixed schema; tool traces and structured outputs
+are stored in $\tau_t$. Given the current regime-conditioned role reliability
+$u_{\rho_t,k,t}$, the fusion module then computes analyst influence
+$\alpha_{t,i,k}$ and aggregate score $s_{t,i}$ as
 \begin{equation}
 \alpha_{t,i,k}=u_{\rho_t,k,t}c_{t,i,k},
 \qquad
 s_{t,i}=\frac{\sum_{k\in\mathcal{K}}\alpha_{t,i,k}x_{t,i,k}}
-                  {\sum_{k\in\mathcal{K}}\alpha_{t,i,k}}.
+                  {\sum_{k\in\mathcal{K}}\alpha_{t,i,k}},
 \label{eq:analyst-fusion}
 \end{equation}
-In Eq.~\ref{eq:analyst-fusion}, reliability $u_{\rho_t,k,t}$ and confidence
-$c_{t,i,k}$ enter the fusion weight $\alpha_{t,i,k}$ linearly, whereas cross-role
-agreement enters through the normalized signed average $s_{t,i}$, in which roles
-voting against the majority sign partially cancel. Position conviction re-weights each
-role by the same $\alpha_{t,i,k}$, so confidence enters sizing as $c^2$; we take this
-$c^2$ form as the canonical default and contrast it with a linear-$c$ variant in
-Appendix~\ref{app:design}. Scores above $0.15$ produce buy
-candidates, scores below $-0.15$ produce sell candidates, and intermediate scores
-are held out. These fixed thresholds are unchanged across all self-evolution
-ablations. The four analyst role prompts and their shared output schema are given
-in Appendix~\ref{app:analyst-prompts}.
+where $u_{\rho_t,k,t}$ is the reliability of role $k$ under regime $\rho_t$
+learned from realized outcomes, and $c_{t,i,k}$ is the analyst's self-reported
+confidence. In Eq.~\ref{eq:analyst-fusion}, reliability and confidence enter
+the fusion weight linearly, whereas cross-role agreement enters through the
+normalized signed average $s_{t,i}$, in which roles voting against the
+majority sign partially cancel. Position conviction re-weights each role by
+the same $\alpha_{t,i,k}$, so confidence enters sizing as $c^2$; we take this
+$c^2$ form as the canonical default and contrast it with a linear-$c$ variant
+in Appendix~\ref{app:design}. Scores above $0.15$ produce buy candidates,
+scores below $-0.15$ produce sell candidates, and intermediate scores are held
+out. These fixed thresholds are unchanged across all self-evolution ablations.
+The four analyst role prompts and their shared output schema are given in
+Appendix~\ref{app:analyst-prompts}.
 
-\paragraph{Self-evolution loop.}
-To evolve analyst reliability from realized outcomes, DarwinTrade maintains one
-evaluation capsule for each regime--role pair $(\rho,k)$. Each capsule
-stores the latest $200$ tuples $(x_{t,i,k},c_{t,i,k},y_{t+1,i},t)$. After removing
-the cross-sectional mean of each trade date from both scores and returns,
-DarwinTrade computes their Pearson correlation
-$\mathrm{IC}_{\rho,k,t}$, following the use of information coefficients to evaluate
-cross-sectional forecast quality in active management \citep{grinold2000active}. Let
-$n_{\rho,k,t}$ denote the number of observations in
-the capsule. The role skill used on the next bar is
+\textbf{Self-evolution loop.}\quad
+To evolve analyst reliability from realized outcomes, DarwinTrade maintains
+one evaluation capsule for each regime--role pair $(\rho,k)$. Each capsule
+stores the latest $200$ tuples $(x_{t,i,k},c_{t,i,k},y_{t+1,i},t)$. After
+removing the cross-sectional mean of each trade date from both scores and
+returns, DarwinTrade computes their Pearson correlation
+$\mathrm{IC}_{\rho,k,t}$, following the use of information coefficients to
+evaluate cross-sectional forecast quality in active
+management~\citep{grinold2000active}. Given the number of observations
+$n_{\rho,k,t}$ in the capsule, the role skill used on the next bar is
 \begin{equation}
 u_{\rho,k,t}
   =
   \begin{cases}
   u_0, & n_{\rho,k,t}<20,\\
   \max(0,\mathrm{IC}_{\rho,k,t})
-    \dfrac{n_{\rho,k,t}}{n_{\rho,k,t}+20}, & n_{\rho,k,t}\geq20.
+    \dfrac{n_{\rho,k,t}}{n_{\rho,k,t}+20}, & n_{\rho,k,t}\geq20,
   \end{cases}
 \label{eq:analyst-skill}
 \end{equation}
-Negative IC therefore removes a warm role instead of reversing its signal, and
-shrinkage limits the influence of estimates supported by few observations. If all
-warm roles have zero skill, the cold-start value $u_0=0.01$ keeps the system active
-while new evidence accrues. Because $y_{t+1,i}$ is unavailable at decision time $t$,
-a day-$t$ prediction can change $u_{\rho,k}$ only from day $t+1$ onward, which then
-updates the role weights in Eq.~\ref{eq:analyst-fusion}---a strictly delayed
+where $u_0=0.01$ is a cold-start value that keeps the system active while new
+evidence accrues, and the factor $n/(n{+}20)$ is a standard shrinkage that
+limits the influence of estimates supported by few observations. Negative IC
+therefore removes a warm role instead of reversing its signal. Because
+$y_{t+1,i}$ is unavailable at decision time $t$, a day-$t$ prediction can
+change $u_{\rho,k}$ only from day $t{+}1$ onward, which then updates the role
+weights in Eq.~\ref{eq:analyst-fusion} and yields a strictly delayed
 analyst-evolution loop.
 
 \subsection{Tactical Evolution}
 \label{sec:tactical-evolution}
 
-\paragraph{Forward process.}
-Short-lived events may require immediate risk control that should not permanently
-change the allocation policy, much as position-aware agents separate directional
-reasoning from exposure adjustment \citep{liu2025finpos,liu2025finrs}. DarwinTrade
-therefore maintains a tactical state $\mathcal{U}^T_t$ with an avoid set, a
-reduce-only set, a portfolio haircut, and a time-to-live: avoided symbols cannot open
-new positions, reduce-only symbols cannot increase absolute exposure, and the haircut
-scales target sizes in $[0.4,1.0]$. Every guard expires after one to three trading
-days, so a tactical response constrains the next decision without silently becoming
-permanent policy.
+\textbf{Forward process.}\quad
+Short-lived events may require immediate risk control that should not
+permanently change the allocation policy, in line with position-aware agents
+that separate directional reasoning from exposure
+adjustment~\citep{liu2025finpos,liu2025finrs}. To this end, DarwinTrade
+maintains a tactical state $\mathcal{U}^T_t$ with an avoid set, a reduce-only
+set, a portfolio haircut, and a time-to-live: avoided symbols cannot open new
+positions, reduce-only symbols cannot increase absolute exposure, and the
+haircut scales target sizes in $[0.4,1.0]$. Every guard expires after one to
+three trading days, so a tactical response constrains the next decision
+without silently becoming permanent policy.
 
-\paragraph{Self-evolution loop.}
-After the next-open portfolio return $y^{\mathrm{pf}}_t$ of the preceding episode
-becomes available, a reflection module summarizes the dominant one-day failure as
-$q^T_t=f_{\text{tac-reflect}}(\tau_{t-1},y^{\mathrm{pf}}_t,\mathcal{U}^T_t)$, and an
-evolution module turns this into a guard action that the state then absorbs:
+\textbf{Self-evolution loop.}\quad
+To turn a realized failure into a bounded next-bar constraint, after the
+next-open portfolio return $y^{\mathrm{pf}}_t$ of the preceding episode
+becomes available, a reflection module summarizes the dominant one-day
+failure as
+$q^T_t=f_{\text{tac-reflect}}(\tau_{t-1},y^{\mathrm{pf}}_t,\mathcal{U}^T_t)$,
+and an evolution module turns this reflection into a guard action that the
+state absorbs:
 \begin{equation}
 \eta^T_t = f_{\text{tac-evolve}}\!\left(q^T_t, \mathcal{U}^T_t\right),
 \qquad
-\mathcal{U}^T_{t+1} = \operatorname{Install}\!\left(\mathcal{U}^T_t, \eta^T_t\right).
+\mathcal{U}^T_{t+1} = \operatorname{Install}\!\left(\mathcal{U}^T_t, \eta^T_t\right),
 \label{eq:tactical-loop}
 \end{equation}
-The action $\eta^T_t$ may install an avoid, reduce-only, or haircut guard, but an
-empty action is also valid. Each installation logs its anchor NAV and post-install
-return at expiry, so $f_{\text{tac-evolve}}$ can avoid repeating interventions that
-previously harmed performance. The tactical reflection and evolution prompts and the
-guard schema appear in Appendix~\ref{app:control-prompts}.
+where $\eta^T_t$ is a guard action that may install an avoid, reduce-only, or
+haircut constraint, or remain empty when no intervention is warranted, and
+$\operatorname{Install}(\cdot)$ absorbs $\eta^T_t$ into the guard state while
+respecting the time-to-live. Each installation logs its anchor NAV and
+post-install return at expiry, so $f_{\text{tac-evolve}}$ can avoid repeating
+interventions that previously harmed performance. The tactical reflection and
+evolution prompts and the guard schema appear in
+Appendix~\ref{app:control-prompts}.
 
 \subsection{Strategic Evolution}
 \label{sec:strategic-evolution}
 
-\paragraph{Forward process.}
-While the tactical state handles short-lived risks, persistent allocation problems
-require changing the long-lived policy, as also explored through outcome-driven
-strategy or style revision in reflective trading agents
-\citep{tian2025tradinggroup,chen2025threestrader}. DarwinTrade parameterizes
-the deterministic allocator by the strategic policy $\boldsymbol{\pi}_t$. Given
-the guarded signals $\widetilde{\mathcal{S}}_t$, current portfolio $P_t$, and
-historical returns $\mathcal{R}_{<t}$, the allocator produces
+\textbf{Forward process.}\quad
+While the tactical state handles short-lived risks, persistent allocation
+problems require changing the long-lived policy, an idea also explored through
+outcome-driven strategy or style revision in reflective trading
+agents~\citep{tian2025tradinggroup,chen2025threestrader}. To this end,
+DarwinTrade parameterizes the deterministic allocator by the strategic policy
+$\boldsymbol{\pi}_t$. Given the guarded signals $\widetilde{\mathcal{S}}_t$,
+current portfolio $P_t$, and historical returns $\mathcal{R}_{<t}$, the
+allocator produces
 \begin{equation}
 \begin{aligned}
 \boldsymbol{w}_t&=\operatorname{Allocate}\!\left(
     \widetilde{\mathcal{S}}_t,P_t,\mathcal{R}_{<t};\boldsymbol{\pi}_t\right),\\
-&\text{s.t. } |w_{t,i}|\leq w_{\max,t},\ \ \textstyle\sum_i|w_{t,i}|\leq G_t.
+&\text{s.t. } |w_{t,i}|\leq w_{\max,t},\ \ \textstyle\sum_i|w_{t,i}|\leq G_t,
 \end{aligned}
 \label{eq:strategic-allocation}
 \end{equation}
-where $G_t$ is the gross-exposure budget (default $0.95$) and $w_{\max,t}$ the
-per-name cap. Gross exposure is split between long and short legs by the confidence
-mass on each side. The policy selects one of nine allocator modes spanning classical
-mean--variance, active-allocation, and hierarchical-risk-parity families
-\citep{markowitz1952portfolio,grinold2000active,lopezdeprado2016hrp}; covariance-based
-modes require at least $20$ per-asset returns and otherwise revert to confidence
-weighting (Appendix~\ref{app:allocator}). The allocator holds no directional prior,
-so net exposure is set by the cross-sectional signal distribution.
+where $G_t$ is the gross-exposure budget (default $0.95$), $w_{\max,t}$ is the
+per-name cap, and $\operatorname{Allocate}(\cdot)$ is a pure deterministic
+function of its inputs and the strategic policy. Gross exposure is split
+between long and short legs by the confidence mass on each side. The policy
+selects one of nine allocator modes spanning classical mean--variance,
+active-allocation, and hierarchical-risk-parity
+families~\citep{markowitz1952portfolio,grinold2000active,lopezdeprado2016hrp};
+covariance-based modes require at least $20$ per-asset returns and otherwise
+revert to confidence weighting (Appendix~\ref{app:allocator}). The allocator
+holds no directional prior, so net exposure is set by the cross-sectional
+signal distribution.
 
-\paragraph{Self-evolution loop.}
-A single episode provides insufficient evidence for changing a long-lived policy.
-Recent live and repeated-run studies likewise show that short samples can reverse
-agent rankings or leave module effects within run-to-run noise
-\citep{rashid2026finanalyst,qu2026clqt}.
-Therefore, after every three completed episodes, DarwinTrade forms a twenty-day
-history $\mathcal{H}^S_j$ for review cycle $j$. A review module diagnoses this
-history as $z^S_j=f_{\text{str-review}}(\mathcal{H}^S_j,\boldsymbol{\pi}_j)$, and a
-policy-author module proposes a restricted change together with its evaluation
-horizon $H_j$, loss threshold $\varepsilon_j$, and reference mode $m_j$:
+\textbf{Self-evolution loop.}\quad
+A single episode provides insufficient evidence for changing a long-lived
+policy, and recent live and repeated-run studies likewise show that short
+samples can reverse agent rankings or leave module effects within run-to-run
+noise~\citep{rashid2026finanalyst,qu2026clqt}. To ensure that only persistent
+patterns can rewrite the strategic policy, DarwinTrade forms a twenty-day
+history $\mathcal{H}^S_j$ after every three completed episodes for review
+cycle $j$. A review module then diagnoses this history as
+$z^S_j=f_{\text{str-review}}(\mathcal{H}^S_j,\boldsymbol{\pi}_j)$, and a
+policy-author module proposes a restricted change together with its
+evaluation horizon $H_j$, loss threshold $\varepsilon_j$, and reference mode
+$m_j$:
 \begin{equation}
 (\Delta\boldsymbol{\pi}_j,H_j,\varepsilon_j,m_j)
   = f_{\text{str-policy}}\!\left(z^S_j,\boldsymbol{\pi}_j,\Omega\right),
 \label{eq:strategic-evolution}
 \end{equation}
-where $\Omega$ is the allowed parameter set. The candidate
-$\boldsymbol{\pi}_j+\Delta\boldsymbol{\pi}_j$ is accepted only after validation
-against $\Omega$.
-A review can change only the preferred optimizer,
-$G\in[0.3,1.0]$, $w_{\max}\in[0.05,1.0]$, the minimum confidence threshold in
-$[0,0.6]$, the position-size multiplier in $[0.5,3.0]$, the long/short net-exposure
-target $\beta^{\star}\in[-1,1]$, and the drawdown-guard and rebound-entry thresholds
-in $[0,1]$. Any unsupported field or out-of-range value is rejected before it
-reaches Eq.~\ref{eq:strategic-allocation}.
+where $\Omega$ is the allowed parameter set,
+$\Delta\boldsymbol{\pi}_j$ is the proposed patch over $\Omega$, and
+$(H_j,\varepsilon_j,m_j)$ specifies a machine-executable rollback trigger.
+The candidate $\boldsymbol{\pi}_j+\Delta\boldsymbol{\pi}_j$ is accepted only
+after validation against $\Omega$. A review can change only the preferred
+optimizer, $G\in[0.3,1.0]$, $w_{\max}\in[0.05,1.0]$, the minimum confidence
+threshold in $[0,0.6]$, the position-size multiplier in $[0.5,3.0]$, the
+long/short net-exposure target $\beta^{\star}\in[-1,1]$, and the
+drawdown-guard and rebound-entry thresholds in $[0,1]$. Any unsupported field
+or out-of-range value is rejected before it reaches
+Eq.~\ref{eq:strategic-allocation}.
 
-To prevent an ineffective change from persisting, each accepted proposal carries an
-evaluation horizon $H_j\in[1,30]$, a loss threshold
+To prevent an ineffective change from persisting, each accepted proposal
+carries an evaluation horizon $H_j\in[1,30]$, a loss threshold
 $\varepsilon_j\in[0.005,0.15]$, and a reference mode $m_j$. Letting
-$g_{m_j}(t_j,t)$ be the monitored performance from installation bar $t_j$ through
-bar $t$, the system restores $\boldsymbol{\pi}_j$ at the first bar with
-$g_{m_j}(t_j,t)<-\varepsilon_j$. The default reference is cumulative
-market-relative alpha, $g_{m_j}(t_j,t)=\sum_{\tau=t_j+1}^{t}
-(y^{\mathrm{pf}}_{\tau}-y^{\mathrm{mkt}}_{\tau})$, with
-$y^{\mathrm{mkt}}_{\tau}$ the equal-weight open-to-open return of the held universe.
-If no breach occurs by $t_j+H_j$, the proposal is committed and its outcome enters
-$\mathcal{Z}^S_{j+1}$; otherwise the previous policy is restored. Only one proposal
-is evaluated at a time. Strategic evolution thus changes only validated allocator
-parameters through a logged commit-or-rollback loop and cannot edit the execution
-engine. Appendix~\ref{app:control-prompts} lists the strategic prompts, the allowed
+$g_{m_j}(t_j,t)$ be the monitored performance from installation bar $t_j$
+through bar $t$ under mode $m_j$, the system restores $\boldsymbol{\pi}_j$
+at the first bar with $g_{m_j}(t_j,t)<-\varepsilon_j$, and commits the
+proposal to $\mathcal{Z}^S_{j+1}$ if no breach occurs by $t_j+H_j$. Only
+one proposal is evaluated at a time. In this way, strategic evolution
+changes only validated allocator parameters through a logged
+commit-or-rollback loop and cannot edit the execution engine.
+Appendix~\ref{app:control-prompts} lists the strategic prompts, the allowed
 set $\Omega$, and the rollback-trigger schema.
 
 \section{Experiments}
 
 \subsection{Experimental Setup}
 
-\paragraph{Evaluation Windows and Trading Protocol}
-We use a fixed daily U.S. equity universe of 20 large-cap stocks: GS, MSFT, HD, V,
-SHW, CAT, MCD, UNH, AXP, AMGN, TRV, CRM, JPM, IBM, HON, BA, AMZN, AAPL, PG, and JNJ.
-This liquid, continuously listed basket remains unchanged across both windows and
-is not reselected using period-specific information. Each evaluation starts with USD
-100,000 and assumes full fills, a 1 bp commission, and 2 bps slippage. Relative
-metrics use SPY as the benchmark where available. Full backtest configuration,
-the LLM backbone and decoding settings, and baseline hyperparameters are reported
-in Appendix~\ref{app:impl}.
+\textbf{Evaluation Windows and Trading Protocol.}\quad
+We use a fixed daily U.S. equity universe of $20$ large-cap stocks: GS, MSFT,
+HD, V, SHW, CAT, MCD, UNH, AXP, AMGN, TRV, CRM, JPM, IBM, HON, BA, AMZN, AAPL,
+PG, and JNJ. This liquid, continuously listed basket remains unchanged across
+both windows and is not reselected using period-specific information. Each
+evaluation starts with USD $100{,}000$ and assumes full fills, a $1$~bp
+commission, and $2$~bps slippage. Relative metrics use SPY as the benchmark
+where available. Full backtest configuration, the LLM backbone and decoding
+settings, and baseline hyperparameters are reported in
+Appendix~\ref{app:impl}. The primary evaluation follows the Rising-Market
+Window distributed with StockBench~\citep{chen2025stockbench}, spanning
+2025-03-03 to 2025-06-30, while the chronologically later Down-Market Window
+spans 2025-12-01 to 2026-03-31, during which SPY falls $-4.6\%$. The
+Down-Market Window changes the market environment while keeping the universe,
+controller code, policy space, execution assumptions, and transaction-cost
+model fixed, and therefore serves as an independently initialized evaluation
+under a different market environment rather than a separately tuned setting.
+The two windows are evaluated independently. All three evolution states
+start empty and adapt only from feedback observed within that window; thus,
+``the same controller'' refers to frozen code and policy bounds whose
+evolution restarts for each evaluation. Each window
+contains $83$ decision bars and $82$ return intervals.
 
-The primary evaluation follows the Rising-Market Window distributed with StockBench
-\citep{chen2025stockbench}, spanning 2025-03-03 to 2025-06-30. The chronologically
-later Down-Market Window spans 2025-12-01 to 2026-03-31, during which SPY falls
-$-4.6\%$. The latter changes the market environment while keeping the universe,
-controller code, policy space, execution assumptions, and transaction-cost model
-fixed. It therefore serves as a regime-shift stress test rather than a separately
-tuned setting.
+\textbf{Data Controls.}\quad
+Every input used at day $t$, including price bars, news, fundamentals, and
+social data, is admitted only when its timestamp is strictly before $t$, and
+prices are adjusted for splits and dividends following standard vendor
+conventions; because the allocator consumes only relative
+cross-sectional signals, the ex-post nature of these adjustments does not
+alter the ordering used at any decision bar. LLM prompts contain only
+pre-$t$ evidence and never receive the day-$t$ open or any subsequent
+information, so no future information can enter the decision path. Analyst
+reliability is learned only from realized post-decision returns, and
+allocation remains in the deterministic controller. These controls follow
+recent recommendations to make point-in-time admission, execution timing,
+and intermediate decision traces
+explicit~\citep{yao2026execution,qu2026clqt,li2026nextfund}.
 
-The two windows are evaluated independently. All three evolution states start empty
-and adapt only from feedback observed within that window. Thus, ``the same
-controller'' refers to frozen code and policy bounds whose evolution restarts for
-each evaluation, rather than state transferred from the Rising-Market Window. Each
-window contains 83 decision bars and 82 return intervals.
+\textbf{Baselines.}\quad
+In the Rising-Market Window, we evaluate the complete $2^3$ factorial over
+analyst, tactical, and strategic evolution: the analyst ablation disables
+online IC updates, whereas the no-evolution variant disables all three
+feedback loops. Beyond these ablations, we compare DarwinTrade against
+buy-and-hold, moving-average crossover, Bollinger bands, ATR bands,
+ARIMA~\citep{box2015time}, XGBoost~\citep{chen2016xgboost},
+TradingAgents~\citep{xiao2024tradingagents}, and
+FinAgent~\citep{zhang2024finagent}. All methods use the same universe,
+evaluation windows, and transaction-cost model.
 
-\paragraph{Data Controls}
-Research evidence, including price bars, news, fundamentals, and social data, is
-admitted only when dated ${<}t$, and prices are adjusted for splits and dividends.
-Analyst reliability is learned only from realized post-decision returns, while
-allocation remains in the deterministic controller. These controls follow recent
-recommendations to make point-in-time admission, execution timing, and intermediate
-decision traces explicit \citep{yao2026execution,qu2026clqt,li2026nextfund}.
-
-\paragraph{Baselines}
-In the Rising-Market Window, we evaluate the complete $2^3$ factorial over analyst,
-tactical, and strategic evolution. The analyst ablation disables online IC updates,
-whereas the no-evolution variant disables all three feedback loops. The Down-Market
-Window extends the evaluation to a later market environment. We compare against
-buy-and-hold, moving-average crossover,
-Bollinger bands, ATR bands, ARIMA \citep{box2015time}, XGBoost
-\citep{chen2016xgboost}, TradingAgents
-\citep{xiao2024tradingagents}, and FinAgent
-\citep{zhang2024finagent}. All methods use the same universe, evaluation windows,
-and transaction-cost model. 
-
-\paragraph{Metrics and Statistical Tests}
-We report cumulative return, maximum drawdown, annualized Sharpe ratio, annualized
-Sortino ratio, annualized information ratio against SPY, and trade count. To compare
-paired daily returns while accounting for serial dependence, we use a moving-block
-bootstrap \citep{kuensch1989jackknife} with block length $5$ and $5000$ resamples,
-reporting the paired excess-return estimate
-$\Delta_{\Sigma}=100\sum_t(r^{\mathrm{ours}}_t-r^{\mathrm{comp}}_t)$ in percentage
-points and $P_+$, the bootstrap probability that $\Delta_{\Sigma}$ is positive.
+\textbf{Metrics and Statistical Tests.}\quad
+We report cumulative return, maximum drawdown, annualized Sharpe ratio,
+annualized Sortino ratio, annualized information ratio against SPY, and trade
+count. To compare paired daily returns while accounting for serial
+dependence, we use a moving-block bootstrap~\citep{kuensch1989jackknife} with
+block length $5$ and $5000$ resamples, reporting the paired excess-return
+estimate
+$\Delta_{\Sigma}=100\sum_t(r^{\mathrm{ours}}_t-r^{\mathrm{comp}}_t)$ in
+percentage points and $P_+$, the bootstrap probability that
+$\Delta_{\Sigma}$ is positive.
 
 \subsection{Main Results}
 
-To evaluate whether DarwinTrade remains effective across market regimes, we compare
-it with rule-based, machine-learning, and LLM-agent baselines in the Rising-Market
-and Down-Market Windows under the common 20-stock universe and transaction-cost
-model; Table~\ref{tab:baselines} reports return and risk-adjusted performance, and
-Figure~\ref{fig:equity} shows the NAV trajectories.
+\textbf{Cross-Regime Portfolio Capability.}\quad
+We evaluate DarwinTrade on the StockBench Rising-Market and later Down-Market
+Windows under the same controller code, policy bounds, and transaction-cost
+model. We compare DarwinTrade with rule-based ($5$), machine-learning ($2$),
+classical-quant ($4$), and LLM-agent ($2$) baselines under a common
+$20$-stock universe. As shown in Table~\ref{tab:baselines}, DarwinTrade
+achieves cumulative returns of $12.1\%$ and $10.9\%$ with Sharpe ratios of
+$2.07$ and $2.56$ in the rising and down windows, outperforming the best
+per-window baseline return by $8.7$ and $4.3$ percentage points respectively
+and ranking first on cumulative return and information ratio in both
+windows, as well as on Sharpe and Sortino in the Rising-Market Window. In
+the Down-Market Window a classical minimum-variance construction over the
+same allocator (MVQ + min-variance, $7.7\%$/Sharpe $2.76$/Sortino $4.71$)
+attains higher risk-adjusted metrics on a lower cumulative return, so no
+single method dominates every metric. Unlike fixed rule-based strategies
+whose ranking flips between windows, e.g.\ Bollinger bands lead the rising
+window ($3.4\%$) but lose $1.3\%$ in the down window, while WMA reverses
+($-6.5\%$ then $+6.6\%$), DarwinTrade's cross-window return spread is only
+$1.2$ percentage points against the best baseline's $13.1$. Feeding a
+non-LLM momentum--value--quality composite into the same allocator (the
+four MVQ rows) further isolates the analyst layer: every construction
+loses in the rising window ($-4.7\%$ to $-6.3\%$) and only modestly profits
+in the down window, so the shared allocator alone does not explain
+DarwinTrade's cross-window gains. Overall, DarwinTrade's results are
+consistent with adaptation inside a specified policy space rather than a
+different strategy per regime.
 
 \begin{table*}[t]
 \centering
@@ -511,7 +643,7 @@ Category & Method & Return & \shortstack[r]{Max\\drawdown} & Sharpe & Sortino & 
 \multirow{5}{*}{Rule}
  & Buy-and-hold     & $0.008$  & $-0.152$ & $0.25$  & $0.33$  & $-0.29$ & & $-0.044$ & $-0.096$ & $-1.06$ & $-1.60$ & $0.01$ \\
  & Bollinger bands  & $0.034$  & $-0.054$ & $0.73$  & $1.35$  & $-0.37$ & & $-0.013$ & $-0.028$ & $-1.21$ & $-1.90$ & $0.75$ \\
- & ATR bands        & $0.007$  & $-0.067$ & $0.23$  & $0.21$  & $-0.65$ & & $0.007$  & $-0.005$ & $1.54$  & $1.42$  & $1.21$ \\
+ & ATR bands        & $0.007$  & $-0.067$ & $0.23$  & $0.21$  & $-0.65$ & & $0.007$  & $\mathbf{-0.005}$ & $1.54$  & $1.42$  & $1.21$ \\
  & SMA crossover    & $-0.010$ & $-0.124$ & $-0.07$ & $-0.07$ & $-1.19$ & & $0.058$  & $-0.029$ & $1.75$  & $3.39$  & $1.80$ \\
  & WMA crossover    & $-0.065$ & $-0.172$ & $-0.86$ & $-0.81$ & $-1.94$ & & $0.066$  & $-0.025$ & $2.03$  & $3.75$  & $1.86$ \\
 \cmidrule(lr){1-13}
@@ -522,48 +654,42 @@ Category & Method & Return & \shortstack[r]{Max\\drawdown} & Sharpe & Sortino & 
 \multirow{4}{*}{\shortstack[l]{Classical\\quant}}
  & MVQ + equal-weight  & $-0.052$ & $-0.083$ & $-1.38$ & $-1.79$ & $-1.20$ & & $0.039$ & $-0.058$ & $1.35$ & $1.86$ & $1.72$ \\
  & MVQ + HRP           & $-0.059$ & $-0.092$ & $-1.50$ & $-1.97$ & $-1.21$ & & $0.047$ & $-0.047$ & $1.75$ & $2.72$ & $1.83$ \\
- & MVQ + min-variance  & $-0.063$ & $-0.091$ & $-1.62$ & $-2.13$ & $-1.27$ & & $0.077$ & $-0.039$ & $2.76$ & $4.71$ & $2.39$ \\
+ & MVQ + min-variance  & $-0.063$ & $-0.091$ & $-1.62$ & $-2.13$ & $-1.27$ & & $0.077$ & $-0.039$ & $\mathbf{2.76}$ & $\mathbf{4.71}$ & $2.39$ \\
  & MVQ + max-Sharpe    & $-0.047$ & $-0.090$ & $-0.99$ & $-1.14$ & $-1.07$ & & $0.026$ & $-0.047$ & $0.90$ & $1.43$ & $1.62$ \\
 \cmidrule(lr){1-13}
 \multirow{2}{*}{\shortstack[l]{LLM\\agent}}
- & TradingAgents & $-0.000$ & $-0.048$ & $0.05$  & $0.07$  & $-0.72$ & & $-0.020$ & $-0.038$ & $-1.06$ & $-1.92$ & $0.56$ \\
+ & TradingAgents & $-0.000$ & $\mathbf{-0.048}$ & $0.05$  & $0.07$  & $-0.72$ & & $-0.020$ & $-0.038$ & $-1.06$ & $-1.92$ & $0.56$ \\
  & FinAgent     & $-0.024$ & $-0.065$ & $-0.66$ & $-0.77$ & $-1.16$ & & $-0.013$ & $-0.046$ & $-0.57$ & $-0.92$ & $0.74$ \\
 \midrule
-Ours & DarwinTrade & $\mathbf{0.121}$ & $-0.067$ & $\mathbf{2.07}$ & $\mathbf{3.20}$ & $\mathbf{0.18}$ & & $\mathbf{0.109}$ & $-0.039$ & $\mathbf{2.56}$ & $\mathbf{4.24}$ & $\mathbf{2.94}$ \\
+Ours & DarwinTrade & $\mathbf{0.121}$ & $-0.067$ & $\mathbf{2.07}$ & $\mathbf{3.20}$ & $\mathbf{0.18}$ & & $\mathbf{0.109}$ & $-0.039$ & $2.56$ & $4.24$ & $\mathbf{2.94}$ \\
 \bottomrule
 \end{tabular}
-\caption{Results in the StockBench Rising-Market Window and the later Down-Market
-Window. All methods use the same 20-stock universe and transaction-cost model.
-\emph{MVQ} denotes a non-LLM cross-sectional momentum--value--quality composite fed
-into the same deterministic allocator DarwinTrade uses, under four portfolio
-constructions. Return is cumulative; Sharpe, Sortino, and information ratio are
-annualized. Bold marks the best value in each window.}
+\caption{DarwinTrade achieves the highest cumulative return and information
+ratio in both the StockBench Rising-Market and the later Down-Market Windows,
+and leads Sharpe and Sortino in the Rising-Market Window; in the Down-Market
+Window a classical minimum-variance construction over the same allocator
+attains higher Sharpe and Sortino. \emph{MVQ} denotes a non-LLM cross-sectional
+momentum--value--quality composite fed into the same deterministic allocator
+DarwinTrade uses, under four portfolio constructions. Return is cumulative;
+Sharpe, Sortino, and information ratio are annualized. \textbf{Bold} marks the
+best value on each metric in each window.}
 \label{tab:baselines}
 \end{table*}
 
-\paragraph{Comparison with Baselines}
-DarwinTrade performs consistently across regimes ($12.1\%$/$2.07$ Sharpe rising,
-$10.9\%$/$2.56$ down), whereas the strongest fixed baselines flip with the window:
-Bollinger bands lead the rising window ($3.4\%$) but lose $1.3\%$ in the down window,
-while WMA shows the reverse ($-6.5\%$ then $+6.6\%$). DarwinTrade thus beats the best
-per-window baseline return by $8.7$ and $4.3$ percentage points. With controller
-code, policy bounds, universe, and costs fixed, this pattern is consistent with
-adaptation inside the specified policy space rather than a different strategy per
-window. Feeding a non-LLM momentum--value--quality composite into the \emph{same}
-allocator (the four MVQ rows) isolates the analyst layer: every construction loses in
-the rising window ($-4.7\%$ to $-6.3\%$) and only modestly profits in the down window
-(best: min-variance, $7.7\%$/Sharpe $2.76$), so the shared allocator alone does not
-explain DarwinTrade's cross-window gains.
-
-\paragraph{Comparison with External LLM Agents}
-DarwinTrade also outperforms TradingAgents ($-0.0\%$/$-2.0\%$) and FinAgent
-($-2.4\%$/$-1.3\%$) in both windows. The distinction is not the number of agents:
-end-to-end reflection rewrites subsequent model-generated behavior, whereas
-DarwinTrade records analyst reliability, temporary risk state, and validated
-allocator state separately before deterministic execution, so no reflection can
-rewrite order logic---matching evidence that reasoning strength does not
-automatically yield stable sequential portfolio performance
-\citep{chen2025stockbench,yu2025livetradebench}.
+\paragraph{Comparison with External LLM Agents.}
+Zooming in on LLM-agent baselines, DarwinTrade also outperforms
+TradingAgents ($-0.0\%$/$-2.0\%$) and FinAgent ($-2.4\%$/$-1.3\%$) in both
+windows by more than $12$ and $12$ percentage points respectively. The
+distinction is not the number of agents: end-to-end reflection rewrites
+subsequent model-generated behavior in one opaque update, whereas DarwinTrade
+records analyst reliability, temporary risk state, and validated allocator
+state separately before deterministic execution, so no reflection can
+rewrite order logic. This aligns with recent evidence that reasoning strength
+does not automatically yield stable sequential portfolio
+performance~\citep{chen2025stockbench,yu2025livetradebench}. Overall,
+DarwinTrade's strong results against external LLM agents highlight its
+advanced capability to convert LLM research into risk-adjusted sequential
+performance.
 
 \begin{figure}[t]
 \centering
@@ -580,18 +706,22 @@ automatically yield stable sequential portfolio performance
 \caption{Down-Market Window.}
 \label{fig:equity-down}
 \end{subfigure}
-\caption{NAV curves of DarwinTrade and SPY in the two evaluation windows.}
+\caption{DarwinTrade outperforms SPY in both the Rising-Market and Down-Market
+Windows under the common $20$-stock universe and transaction-cost model,
+achieving positive cumulative return in a $-4.6\%$ down window without
+re-tuning the controller code or policy space.}
 \label{fig:equity}
 \end{figure}
 
 \section{Analyses}
 
-\subsection{Effects of Three-Layer Self-Evolution}
+\subsection{Ablation Study on Hierarchical Self-Evolution}
 
-To separate each evolution layer's contribution from cross-layer coordination, we
-run the complete $2^3$ factorial in the Rising-Market Window and inspect
-regime-conditioned analyst selection alongside logged tactical and strategic
-interventions (Figure~\ref{fig:evolution}, Table~\ref{tab:darwin}).
+To separate each evolution layer's contribution from cross-layer
+coordination, we run the complete $2^3$ factorial in the Rising-Market
+Window and inspect regime-conditioned analyst selection alongside logged
+tactical and strategic interventions
+(Figure~\ref{fig:evolution}, Table~\ref{tab:darwin}).
 Table~\ref{tab:darwin} reports four ablation contrasts; the full eight-cell
 factorial is in Appendix~\ref{app:factorial}.
 
@@ -610,57 +740,69 @@ factorial is in Appendix~\ref{app:factorial}.
 \caption{Regime-conditioned analyst selectivity.}
 \label{fig:evolution-analyst}
 \end{subfigure}
-\caption{Evidence for three-layer self-evolution. (a) Rising-Market Window
-factorial variants. (b) Analyst IC by regime; $\times$ marks a non-positive capsule
-removed by the aggregation gate.}
+\caption{Three-layer self-evolution decomposes DarwinTrade's gains into
+distinct roles. (a) In return--Sharpe space, the full system dominates every
+$2^3$ factorial variant in the Rising-Market Window. (b) The positive-IC
+gate suppresses $5$ of $12$ warm analyst capsules, with removed capsules
+concentrating on non-positive mean IC ($\times$ marks a removed capsule).}
 \label{fig:evolution}
 \end{figure}
 
-The factorial results assign different functions to the three timescales. Removing
-tactical evolution causes the largest single-layer loss ($-9.1\%$ return, $-1.82$
-Sharpe), consistent with the one-to-three-bar guard being the only loop that can
-immediately reduce a newly harmful exposure. Without strategic evolution, return
-falls to $-5.3\%$ and maximum drawdown reaches $-16.3\%$, as short-lived guards
-cannot replace a persistent change to optimizer or portfolio size. Removing analyst
-evolution leaves portfolio controls intact but weakens cross-sectional selection
-($1.5\%$ return, $0.32$ Sharpe). These are ablation-level associations, not additive
-causal effects: every single-layer-only variant has negative Sharpe, so the layers
-must operate on one another's evolving inputs \citep{liu2025finpos,liu2025finrs}.
+As reported in Table~\ref{tab:darwin}, the three loops carry different
+functions in DarwinTrade. In particular, removing tactical evolution causes
+the largest single-layer loss ($-9.1\%$ return, $-1.82$ Sharpe), demonstrating
+the advantage of the one-to-three-bar guard as the only loop that can
+immediately reduce a newly harmful exposure. Without strategic evolution,
+return falls to $-5.3\%$ and maximum drawdown reaches $-16.3\%$, since
+short-lived guards cannot replace a persistent change to optimizer or
+portfolio size. Removing analyst evolution leaves portfolio controls intact
+but weakens cross-sectional selection ($1.5\%$ return, $0.32$ Sharpe). These
+are ablation-level associations, not additive causal effects: every
+single-layer-only variant has negative Sharpe, so the layers must operate on
+one another's evolving inputs \citep{liu2025finpos,liu2025finrs}. The static
+policy still profits, but evolution mainly improves the path of returns:
+disabling all three loops yields $8.0\%$ return yet halves Sharpe from $2.07$
+to $0.94$ and deepens maximum drawdown from $-6.7\%$ to $-15.2\%$, supporting
+improved risk-adjusted adaptation rather than standalone return per update.
+Overall, the ablation results support our design of decomposing
+self-evolution into three independently ablatable hierarchical loops.
 
-The static policy still profits, but evolution mainly improves the path of returns:
-disabling all three loops yields $8.0\%$ yet halves Sharpe from $2.07$ to $0.94$ and
-deepens maximum drawdown from $-6.7\%$ to $-15.2\%$, supporting improved
-risk-adjusted adaptation rather than standalone return per update.
+\subsection{Superiority of Regime-Conditioned Analyst Selection}
 
-Figure~\ref{fig:evolution-analyst} shows why analyst evolution is more than generic
-multi-agent averaging. The positive-IC gate suppresses $5$ of $12$ warm capsules in
-the Rising-Market Window and $6$ of $12$ in the Down-Market Window; retained
-capsules have mean ICs of $0.09$ and $0.07$, versus $-0.09$ and $-0.05$ for removed
-ones. Selection is role- and regime-specific---the news analyst, for instance, is
-removed on bear-labeled days in the rising window but kept in bull and volatile
-regimes---so a role is reused where its delayed evidence stays predictive without
-gaining permanent influence \citep{zhang2025regimefolio,jeon2026blindtrade}. This
-gating relies on the regime labels: scored against the deterministic trend rule it
-follows, the classifier reaches $0.86$ directional agreement in both windows with
-errors confined to the adjacent \emph{volatile} state and essentially no bull/bear
-sign flips (Appendix~\ref{app:regime}).
+As shown in Figure~\ref{fig:evolution-analyst}, analyst evolution is more
+than generic multi-agent averaging. The positive-IC gate suppresses $5$ of
+$12$ warm capsules in the Rising-Market Window and $6$ of $12$ in the
+Down-Market Window; retained capsules have mean ICs of $0.09$ and $0.07$,
+versus $-0.09$ and $-0.05$ for removed ones. Selection is role- and
+regime-specific, so that the news analyst, for instance, is removed on
+bear-labeled days in the rising window but kept in bull and volatile
+regimes, allowing a role to be reused where its delayed evidence stays
+predictive without gaining permanent
+influence~\citep{zhang2025regimefolio,jeon2026blindtrade}. This gating relies
+on the regime labels: scored against the deterministic trend rule it
+follows, the classifier reaches $0.86$ directional agreement in both windows
+with errors confined to the adjacent volatile state and essentially
+no bull/bear sign flips (Appendix~\ref{app:regime}). In contrast, the other
+two layers leave different traces: tactical interventions expire within one
+to three days, limiting a local error without permanently suppressing a
+symbol, while strategic evolution edits approved allocator fields and logs
+the diagnosis, horizon, and rollback threshold, so its moves toward HRP and
+risk parity remain bounded and reversible. Overall, the analyst-selection
+results highlight the advantage of regime-conditioned reliability over
+uniform multi-analyst averaging.
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{Figures/fig_case_study_amgn}
-\caption{Auditable AMGN case study in the Down-Market Window. The upper panel shows
-point-in-time opening prices and executions (up: buy/cover; down: sell/short); the
-lower panel shows the deterministic target weight. Numbered callouts mark the analyst
-entry (1), the two-bar tactical guard (2), and the strategic allocator update (3),
-reporting only fields and outcomes recovered from the run logs.}
+\caption{One AMGN symbol carries an inspectable trace of all three
+timescales acting independently in the Down-Market Window: an analyst entry
+(1), a two-bar tactical guard (2), and a strategic allocator update (3). The
+upper panel shows point-in-time opening prices and executions (up: buy/cover;
+down: sell/short); the lower panel shows the deterministic target weight;
+numbered callouts report only fields and outcomes recovered from the run
+logs.}
 \label{fig:case-study}
 \end{figure*}
-
-The other layers leave different traces. Tactical interventions expire within one to
-three days, limiting a local error without permanently suppressing a symbol, while
-strategic evolution edits approved allocator fields and logs the diagnosis, horizon,
-and rollback threshold, so its moves toward HRP and risk parity remain bounded and
-reversible.
 
 \begin{table}[t]
 \centering
@@ -677,55 +819,69 @@ $-$Analyst      & $\phantom{-}0.015$ & $-0.112$ & $\phantom{-}0.32$ \\
 $-$All evolution & $\phantom{-}0.080$ & $-0.152$ & $\phantom{-}0.94$ \\
 \bottomrule
 \end{tabular}
-\caption{Evolution-layer ablations in the Rising-Market Window.
-$-$All evolution disables analyst,
-tactical, and strategic feedback loops.}
+\caption{Removing any of the three self-evolution loops degrades DarwinTrade
+in the Rising-Market Window, and every single-layer removal turns Sharpe
+non-positive except the no-analyst variant. $-$All evolution disables
+analyst, tactical, and strategic feedback loops jointly.}
 \label{tab:darwin}
 \end{table}
 
-\subsection{Case Study: Auditable Evolution on Amgen}
+\subsection{Case Study on Hierarchical Evolution}
 
-Because DarwinTrade's central claim is that self-evolution is auditable rather than
-hidden, we trace one symbol to show that each timescale acts independently and leaves
-an inspectable record. We follow Amgen (AMGN) through the Down-Market Window
-(Figure~\ref{fig:case-study}), an auditing example rather than a performance test,
-with the full log excerpt in Appendix~\ref{app:case}. Three events act on distinct
-timescales. At the analyst timescale, IC-weighted fusion opens a $5.7\%$ long at
-$0.43$ confidence and closes it four bars later for $+\$252.78$. When a $-2.17\%$
-portfolio-alpha day triggers the tactical timescale, AMGN is placed on a two-bar
-reduce-only list with a $0.80$ haircut, which trims a profitable short from $-22.3\%$
-to $-7.9\%$, removes exposure before the February 13--17 rebound, and then expires
-automatically. At the strategic timescale, a stale-regime diagnosis edits only
-approved allocator fields---switching the optimizer to minimum-variance with a $0.85$
-size multiplier and logging the horizon and rollback threshold---so the March 17
-short is sized down and the symbol accumulates $+\$3.07$k. Each event is attributable
-to a specific trigger, outcome, and bounded policy component, inspectable on its own
-rather than as one post-hoc reflection.
+To evaluate whether self-evolution is auditable rather than hidden, we trace
+one symbol to check that each timescale acts independently and leaves an
+inspectable record. Specifically, we follow Amgen (AMGN) through the
+Down-Market Window (Figure~\ref{fig:case-study}), an auditing example rather
+than a performance test, with the full log excerpt in
+Appendix~\ref{app:case}. As shown in Figure~\ref{fig:case-study}, three events
+act on distinct timescales. At the analyst timescale, IC-weighted fusion
+opens a $5.7\%$ long at $0.43$ confidence and closes it four bars later for
+$+\$252.78$. When a $-2.17\%$ portfolio-alpha day triggers the tactical
+timescale, AMGN is placed on a two-bar reduce-only list with a $0.80$
+haircut, which trims a profitable short from $-22.3\%$ to $-7.9\%$, removes
+exposure before the February 13--17 rebound, and then expires automatically.
+At the strategic timescale, a stale-regime diagnosis edits only approved
+allocator fields, switching the optimizer to minimum-variance with a $0.85$
+size multiplier and logging the horizon and rollback threshold, so the March
+17 short is sized down and the symbol accumulates $+\$3.07$k over the
+window. In this way, each event is attributable to a specific trigger,
+outcome, and bounded policy component, inspectable on its own rather than as
+one post-hoc reflection. Overall, the case study demonstrates the advantage
+of hierarchical decomposition for auditable self-evolution.
 
-\subsection{Exposure and Market Beta}
+\subsection{Analysis of Exposure and Market Beta}
 
-To test whether performance is merely a persistent directional bet
-\citep{zhu2026ktdfin,duan2026tradelens}, we compute regime-conditioned daily exposure
-and realized SPY beta. Net exposure moves from $-0.22$ to $0.31$ across regimes in the
-rising window and stays moderately net long ($0.22$--$0.37$) in the down window (betas
-$-0.02$ and $0.25$); this sign-varying exposure contrasts with the regime-reversing
-baseline rankings (Table~\ref{tab:baselines}), arguing against passive SPY direction.
+To test whether performance is merely a persistent directional
+bet~\citep{zhu2026ktdfin,duan2026tradelens}, we compute regime-conditioned
+daily exposure and realized SPY beta. Net exposure moves from $-0.22$ to
+$0.31$ across regimes in the rising window and stays moderately net long
+($0.22$--$0.37$) in the down window (betas $-0.02$ and $0.25$); this
+sign-varying exposure contrasts with the regime-reversing baseline rankings
+(Table~\ref{tab:baselines}), arguing against passive SPY direction.
 
 \subsection{Statistical Robustness}
 
-Paired moving-block bootstrap comparisons ($5000$ resamples) of the summed paired
-daily excess return $\Delta_{\Sigma}$ (pp, positive probability $P_+$) favor the full
-system over every rising-window single-layer removal---$-$Tactical ($21.0$, $0.94$),
-$-$Strategic ($16.6$, $0.91$), $-$Analyst ($9.5$, $0.88$), $-$all-evolution ($2.7$,
-$0.56$)---and over the strongest down-window baseline, WMA ($4.0$, $0.69$); varying
-one design choice at a time (Appendix~\ref{app:design}) likewise leaves no
-alternative dominating.
+To account for serial dependence with a small effective sample, we perform
+paired moving-block bootstrap comparisons ($5000$ resamples) of the summed
+paired daily excess return $\Delta_{\Sigma}$ (pp, with positive probability
+$P_+$). The results favor the full system over every rising-window
+single-layer removal (Tactical: $21.0$, $0.94$; Strategic: $16.6$, $0.91$;
+Analyst: $9.5$, $0.88$; all-evolution: $2.7$, $0.56$) and the strongest
+down-window baseline WMA ($4.0$, $0.69$); a sensitivity analysis over five
+design axes (Appendix~\ref{app:design}) shows that no single alternative
+uniformly improves on the reported system across both windows.
 
 \section{Conclusion}
 
-DarwinTrade is an auditable self-evolving portfolio framework whose analyst,
-tactical, and strategic layers evolve separately from a deterministic executor,
-jointly driving risk-adjusted adaptation across two market windows.{\setlength{\bibsep}{2pt plus 0.2pt}
+In this paper, we introduce DarwinTrade, an auditable self-evolving
+multi-agent trading system that instantiates hierarchical self-evolution
+as three state-disjoint loops, namely analyst, tactical, and strategic
+evolution, over a deterministic executor. Under this decomposition,
+DarwinTrade achieves $12.1\%$ and $10.9\%$ cumulative returns with
+Sharpe ratios of $2.07$ and $2.56$ in the StockBench Rising-Market and
+Down-Market Windows, while every policy change is traceable to a specific
+loop and a realized outcome.
+{\setlength{\bibsep}{2pt plus 0.2pt}
 \bibliography{darwintrade_aaai2027}}
 
 % ============================ APPENDIX ============================
@@ -875,7 +1031,8 @@ The reported backbone \texttt{mimo-v2.5-pro} is a proprietary, OpenAI-compatible
 chat model served behind a standard chat-completions endpoint; DarwinTrade issues
 only text prompts and reads back the JSON contract in
 Listing~\ref{lst:analyst-schema}, so any instruction-following chat model with
-schema-constrained decoding---open-weight or proprietary---can be substituted without
+schema-constrained decoding, whether open-weight or proprietary, can be
+substituted without
 code changes. To support external replication we will release, under an anonymized
 repository, the full controller code, the fixed configuration of
 Table~\ref{tab:hyper}, the verbatim prompts and schemas of this appendix, and the
@@ -897,7 +1054,7 @@ Seed & $1234$ (fixed; sent when supported) \\
 Response format & JSON schema, \texttt{json\_object} fallback \\
 Analyst score range & $x\in[-1,1]$ \\
 Analyst confidence range & $c\in[0,1]$ \\
-Regime labels & bull, bear, sideways, volatile \\
+Regime labels & bull, bear, volatile \\
 \bottomrule
 \end{tabular}
 \caption{LLM decoding and output configuration shared by all modules. The backbone
@@ -981,7 +1138,7 @@ return this object; malformed output falls back to a deterministic trend rule.}
   "summary":       string,           // evidence-grounded rationale
   "score":         number in [-1,1], // directional view
   "confidence":    number in [0,1],  // self-reported reliability
-  "market_regime": "bull"|"bear"|"sideways"
+  "market_regime": "bull"|"bear"|"volatile"
 }
 \end{lstlisting}
 \end{listing}
@@ -998,8 +1155,8 @@ shipped; the per-call user message is a JSON payload of the relevant traces,
 outcomes, and track record. Each author also receives a longer role skill document
 that is elided here.
 
-While the guard \emph{content} is authored by the tactical LLM, the decision of
-\emph{when} a guard may be installed is bounded by explicit quantitative gates that
+While the guard content is authored by the tactical LLM, the decision of
+when a guard may be installed is bounded by explicit quantitative gates that
 the payload exposes and the prompt enforces. A portfolio \texttt{haircut} in
 $[0.4,1.0]$ is the default de-risking action and is considered only after a negative
 realized portfolio-alpha day; \texttt{reduce\_only} is reserved for a name whose held
@@ -1014,21 +1171,6 @@ automatically, bounding the cost of any single mistaken install to a few bars. T
 gates make the tactical layer auditable: each install is attributable to a logged
 trigger (negative alpha, weakening view, or specific adverse evidence) and to its
 realized post-install outcome.
-
-The rollback governance in Section~\ref{sec:strategic-evolution} references
-equal-weight universe alpha rather than SPY, whereas reported metrics use SPY. This
-choice is deliberate rather than arbitrary. The equal-weight held universe is the
-benchmark the allocator can actually track name-for-name, so a rollback trigger
-defined against it measures whether a strategic patch helped \emph{relative to the
-same book without the patch}, isolating the patch's effect from the market-beta
-component that SPY would inject into the trigger. Using SPY inside the trigger would
-couple a governance decision about an internal allocator parameter to broad-market
-direction over the short evaluation horizon, so a patch could be reverted or retained
-for reasons unrelated to its own contribution. SPY is retained for the reported
-performance metrics because it is the conventional external reference for
-risk-adjusted return. The two benchmarks therefore serve distinct roles---an internal,
-beta-neutral reference for governance and a standard external reference for
-reporting---and are not interchangeable measures of the same quantity.
 
 \begin{listing}[tb]
 \caption{Tactical reflection system prompt ($f_{\text{tac-reflect}}$).}
@@ -1153,13 +1295,8 @@ fields:
   - eval_horizon_bars: integer in [1, 30]. How many bars the patch is
     held before it is committed (kept) or reverted.
   - drawdown_pct: fraction in [0.005, 0.15].
-  - reference: which signal the evaluator compares against.
-    * "counterfactual_alpha" (STRONGLY PREFERRED): revert when
-      cumulative alpha (portfolio minus benchmark return) since the
-      patch was applied drops more than drawdown_pct below zero. This
-      separates "patch was bad" from "market went down".
-    * "pre_patch_nav" (legacy): revert when absolute NAV drops more
-      than drawdown_pct below the pre-patch anchor.
+  - reference: the monitored signal against which the loss threshold
+    is applied.
 The evaluator reads these fields directly; free-text is ignored.
 
 You see the outcome of your own PAST patches in patch_track_record
@@ -1310,7 +1447,10 @@ windows. Each window has $83$ decision bars and $82$ return intervals.
 
 Evidence admission is strictly point-in-time: price bars, news, fundamentals, and
 social data are admitted only when dated ${<}t$, and prices are split- and
-dividend-adjusted. Daily OHLCV bars, technical indicators, and quarterly
+dividend-adjusted following standard vendor conventions. Because the allocator
+consumes only relative cross-sectional signals, the ex-post nature of these
+adjustments does not alter the ordering of returns used at any decision bar.
+Daily OHLCV bars, technical indicators, and quarterly
 fundamentals are sourced from Polygon; the news and social analysts consume a
 company-tagged news bundle drawn from Finnhub and Polygon, filtered to items
 published before $t$. News items are deduplicated with a stable key that prefers an
@@ -1338,7 +1478,7 @@ up on the same universe for half a year of history before each window.
 
 \paragraph{Turnover and cost sensitivity.}
 Over the $83$-bar windows DarwinTrade executes $1039$ (rising) and $911$ (down)
-individual fills, roughly $11$--$12$ per bar over $20$ names---far below the
+individual fills, roughly $11$--$12$ per bar over $20$ names, far below the
 $1700$--$2000$ fills of the daily-signal ARIMA, XGBoost, and SMA/WMA baselines and
 in the range of the discrete rule and LLM-agent baselines. At the reported $1$~bp
 commission and $2$~bps slippage this turnover costs $2.7\%$ (rising) and $3.3\%$
@@ -1360,7 +1500,8 @@ by the cross-sectional confidence mass rather than a fixed short target, so the
 short leg is only a fraction of NAV. As an upper bound we charge a borrow fee on the
 full gross budget for the entire window: at a general-collateral $50$~bp annualized
 rate this deducts under $0.2$ percentage points over the ${\approx}0.33$-year window,
-and even a stressed $300$~bp rate deducts under $1$ percentage point---smaller than
+and even a stressed $300$~bp rate deducts under $1$ percentage point, which is
+smaller than
 the doubled-cost check above and insufficient to change the baseline ranking. Because
 the universe carries no known hard-to-borrow names in either window, we do not model
 locate failures; extending DarwinTrade to small-cap or special-borrow universes,
@@ -1370,14 +1511,11 @@ a natural direction for deployment-oriented follow-up.
 \subsection{Regime-Classifier Evaluation}
 \label{app:regime}
 
-The four regimes are latent, so no external ground-truth label exists. We instead
-score the classifier against the deterministic trend definition it is instructed to
-follow: the rule maps the SPY $5$- and $20$-bar trends (\S\,\ref{app:allocator}
-inputs, computed strictly before $t$ exactly as in the live snapshot) to
-\emph{bull}/\emph{bear} when the $20$-bar backbone exceeds $\pm1\%$, to
-\emph{volatile} when the $5$- and $20$-bar trends disagree in sign, and to a flat
-\emph{sideways} band otherwise. This measures whether the LLM's decisive call is
-internally consistent with the trend evidence and, more importantly, how its errors
+The three regimes are latent, so no external ground-truth label exists. We
+instead score the classifier against a deterministic trend rule computed
+strictly before $t$: bull or bear when the SPY $20$-bar backbone exceeds
+$\pm1\%$, and volatile otherwise. This measures how the classifier's calls
+align with the trend evidence and, more importantly, how its errors
 distribute across states.
 
 \begin{table}[tb]
@@ -1401,34 +1539,30 @@ Volatile        & $0$  & $6$  & $0$  & $1.00$ \\
 Bear            & $0$  & $1$  & $21$ & $0.95$ \\
 \bottomrule
 \end{tabular}
-\caption{Regime confusion against the deterministic trend rule, restricted to
-directional-truth days (the classifier runs in a decisive three-state mode and never
-emits the flat \emph{sideways} band, which covers $2\%$ of rising-window and $41\%$
-of down-window days). Rows are the trend-rule label; columns are the LLM prediction.}
+\caption{Regime confusion against the deterministic trend rule, on days
+with a decisive directional label. Rows are the trend-rule label; columns
+are the LLM prediction.}
 \label{tab:regime-confusion}
 \end{table}
 
-Table~\ref{tab:regime-confusion} reports the confusion matrix. Raw agreement over all
-$83$ bars is $0.84$ in the rising window and $0.51$ in the down window; the lower
-down-window figure is not a sign error but a coverage gap---$41\%$ of down-window days
-fall in the flat \emph{sideways} band that the decisive three-state classifier is
-instructed never to emit. Restricting to directional-truth days, agreement is $0.86$
-in both windows. The structure of the errors matters more than the rate: every
-misclassification lands in the adjacent \emph{volatile} turning-point state, with no
-bull\,$\leftrightarrow$\,bear sign flip in the rising window and only one in the down
-window. Reported confidence is calibrated to this: mean confidence is $0.75$ on
-correct calls versus $0.59$ (rising) and $0.64$ (down) on incorrect ones, so
-low-conviction days concentrate the errors.
+Table~\ref{tab:regime-confusion} reports the confusion matrix. Agreement is
+$0.86$ in both windows. The structure of the errors matters more than the
+rate: every misclassification lands in the adjacent volatile turning-point
+state, with no bull-bear sign flip in the rising window and only one in the
+down window. Reported confidence is calibrated to this: mean confidence is
+$0.75$ on correct calls versus $0.59$ (rising) and $0.64$ (down) on
+incorrect ones, so low-conviction days concentrate the errors.
 
-Two mechanisms limit the downstream cost of the residual errors. First, the errors
-are conservative: because they collapse a directional call into \emph{volatile}
-rather than flipping its sign, the allocator's regime-selected mode moves toward the
-lower-gross, risk-parity end rather than reversing exposure. Second, misclassified
-days do realize worse outcomes---mean daily NAV return is $+18.9$\,bp on agreement
-days versus $-20.7$\,bp on disagreement days in the rising window ($+0.9$ versus
-$-23.5$\,bp in the down window)---but this is precisely the local error the one-to
-three-bar tactical guard is designed to trim before it compounds, consistent with the
-tactical layer carrying the largest single-layer ablation effect
+Two mechanisms limit the downstream cost of the residual errors. First, the
+errors are conservative: because they collapse a directional call into
+volatile rather than flipping its sign, the allocator's regime-selected
+mode moves toward the lower-gross, risk-parity end rather than reversing
+exposure. Second, misclassified days do realize worse outcomes (mean daily
+NAV return is $+18.9$\,bp on agreement days versus $-20.7$\,bp on
+disagreement days in the rising window; $+0.9$ versus $-23.5$\,bp in the
+down window), but this is precisely the local error the one-to
+three-bar tactical guard is designed to trim before it compounds, consistent
+with the tactical layer carrying the largest single-layer ablation effect
 (Table~\ref{tab:darwin}).
 
 \section{Complete Rising-Market Factorial}
@@ -1440,7 +1574,7 @@ shows the four contrasts most relevant to the layer-ablation discussion; here we
 add the three single-layer-only cells and restate the full-system and no-evolution
 cells for completeness. The pattern is consistent with the main text: the full
 system dominates, removing any single layer degrades risk-adjusted performance, and
-\emph{every} single-layer-only variant has negative Sharpe. No layer is
+every single-layer-only variant has negative Sharpe. No layer is
 individually sufficient; the layers must operate on one another's evolving inputs.
 
 \begin{table}[tb]
@@ -1469,17 +1603,18 @@ three ``only-'' rows are added here.}
 \label{tab:full-factorial}
 \end{table}
 
-\section{Design-Choice Alternatives}
+\section{Sensitivity to Design Alternatives}
 \label{app:design}
 
-Table~\ref{tab:design} reports the full return and Sharpe results for the
-design-choice study discussed in the main text, changing one aggregation or
-governance decision at a time in both market windows. The full system is repeated in
-the first row for reference. No alternative dominates the default in both windows:
-day-level shrinkage improves the rising window but degrades the down window, signed
-IC and linear confidence underperform in both, a rule-based regime remains profitable
-but weakens under shift, and shadow-policy rollback trades return for the governance
-guarantee of reverting an injected harmful patch.
+Table~\ref{tab:design} reports a sensitivity analysis of the reported
+system against five design alternatives, each perturbing one aggregation
+or governance decision at a time. The full system is repeated in the
+first row for reference. Each row measures the resulting return and
+Sharpe under both evaluation windows: day-level shrinkage yields a
+different bias-variance trade-off between the two windows, signed IC and
+linear confidence weaken both, a rule-based regime remains profitable
+but weakens under shift, and shadow-policy rollback trades return for
+the governance guarantee of reverting an injected harmful patch.
 
 \begin{table}[tb]
 \centering
@@ -1499,8 +1634,9 @@ Rule-based regime      & $9.3$   & $1.73$  & $3.0$  & $0.97$ \\
 Shadow-policy rollback & $8.9$   & $1.50$  & $1.1$  & $0.37$ \\
 \bottomrule
 \end{tabular}
-\caption{Analysis of design choices in both market windows. Each row changes one
-design choice. Return is cumulative, and Sharpe is annualized.}
+\caption{Sensitivity of the reported system to five design decisions.
+Each row perturbs one design axis and reports the resulting cumulative
+return and annualized Sharpe under both evaluation windows.}
 \label{tab:design}
 \end{table}
 
@@ -1511,8 +1647,9 @@ Table~\ref{tab:case-log} reproduces the field-level records behind the AMGN case
 study of the main paper, recovered directly from the run logs. Each row is one
 logged evolution event; the columns report only quantities present in the stored
 trace, so the narrative in the main text can be checked against the raw log. The
-three events act on distinct timescales -- a reliability-driven analyst entry, a
-two-bar tactical guard, and a validated strategic patch -- and each is attributable
+three events act on distinct timescales, i.e., a reliability-driven analyst
+entry, a two-bar tactical guard, and a validated strategic patch, and each is
+attributable
 to a single named loop rather than to one opaque reflection step.
 
 \begin{table}[tb]

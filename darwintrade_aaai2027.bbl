@@ -1,12 +1,38 @@
-\begin{thebibliography}{21}
+\begin{thebibliography}{30}
 \providecommand{\natexlab}[1]{#1}
 
-\bibitem[{Chen et~al.(2025)Chen, Yao, Liu, Ye, Yu, Hou, and
+\bibitem[{Box et~al.(2015)Box, Jenkins, Reinsel, and Ljung}]{box2015time}
+Box, G. E.~P.; Jenkins, G.~M.; Reinsel, G.~C.; and Ljung, G.~M. 2015.
+\newblock \emph{Time Series Analysis: Forecasting and Control}.
+\newblock Wiley, 5 edition.
+
+\bibitem[{Chen et~al.(2025{\natexlab{a}})Chen, Ahmad, Goel, and
+  Szabo}]{chen2025threestrader}
+Chen, K.; Ahmad, H.; Goel, D.; and Szabo, C. 2025{\natexlab{a}}.
+\newblock {3S-Trader}: A Multi-{LLM} Framework for Adaptive Stock Scoring,
+  Strategy, and Selection in Portfolio Optimization.
+\newblock arXiv:2510.17393.
+
+\bibitem[{Chen and Guestrin(2016)}]{chen2016xgboost}
+Chen, T.; and Guestrin, C. 2016.
+\newblock {XGBoost}: A Scalable Tree Boosting System.
+\newblock In \emph{Proceedings of the 22nd {ACM} {SIGKDD} International
+  Conference on Knowledge Discovery and Data Mining}, 785--794.
+
+\bibitem[{Chen et~al.(2025{\natexlab{b}})Chen, Yao, Liu, Ye, Yu, Hou, and
   Li}]{chen2025stockbench}
-Chen, Y.; Yao, Z.; Liu, Y.; Ye, J.; Yu, J.; Hou, L.; and Li, J. 2025.
+Chen, Y.; Yao, Z.; Liu, Y.; Ye, J.; Yu, J.; Hou, L.; and Li, J.
+  2025{\natexlab{b}}.
 \newblock {StockBench}: Can {LLM} Agents Trade Stocks Profitably In Real-world
   Markets?
 \newblock arXiv:2510.02209.
+
+\bibitem[{Duan et~al.(2026)Duan, Li, Wang, Zhang, Wang, Miao, Ma, Yan, Chen,
+  Liu, Nakov, Luo, and Tang}]{duan2026tradelens}
+Duan, Q.; Li, C.; Wang, C.; Zhang, F.; Wang, M.; Miao, D.; Ma, P.; Yan, J.;
+  Chen, L.; Liu, S.; Nakov, P.; Luo, Y.; and Tang, N. 2026.
+\newblock Can Agentic Trading Systems Pay for Their Own Intelligence?
+\newblock arXiv:2607.10286.
 
 \bibitem[{Fan et~al.(2025)Fan, Yang, Jiang, Zhang, Chen, and
   Huang}]{fan2025aitrader}
@@ -33,23 +59,34 @@ Grinold, R.~C.; and Kahn, R.~N. 2000.
   Producing Superior Returns and Controlling Risk}.
 \newblock McGraw-Hill, 2 edition.
 
+\bibitem[{Jeon and Lee(2026)}]{jeon2026blindtrade}
+Jeon, J.; and Lee, H. 2026.
+\newblock Can Blindfolded {LLMs} Still Trade? An Anonymization-First Framework
+  for Portfolio Optimization.
+\newblock arXiv:2603.17692.
+
 \bibitem[{K{\"u}nsch(1989)}]{kuensch1989jackknife}
 K{\"u}nsch, H.~R. 1989.
 \newblock The Jackknife and the Bootstrap for General Stationary Observations.
 \newblock \emph{The Annals of Statistics}, 17(3): 1217--1241.
 
-\bibitem[{Lee et~al.(2025)Lee, Seo, Park, Lee, Ahn, Choi, Lopez-Lira, and
-  Lee}]{lee2025bias}
-Lee, H.; Seo, J.; Park, S.; Lee, J.; Ahn, W.; Choi, C.; Lopez-Lira, A.; and
-  Lee, Y. 2025.
-\newblock Your {AI}, Not Your View: The Bias of {LLMs} in Investment Analysis.
-\newblock arXiv:2507.20957.
+\bibitem[{Li et~al.(2026)Li, Ma, Duan, Lin, and Wu}]{li2026nextfund}
+Li, C.; Ma, P.; Duan, Q.; Lin, Z.; and Wu, P. 2026.
+\newblock {NextFund}: A Unified Performance Tracking Platform for Agentic
+  Portfolio Management.
+\newblock arXiv:2607.11141.
 
-\bibitem[{Li et~al.(2023)Li, Yu, Li, Chen, and Khashanah}]{li2023tradinggpt}
-Li, Y.; Yu, Y.; Li, H.; Chen, Z.; and Khashanah, K. 2023.
-\newblock {TradingGPT}: Multi-Agent System with Layered Memory and Distinct
-  Characters for Enhanced Financial Trading Performance.
-\newblock \emph{arXiv preprint arXiv:2309.03736}.
+\bibitem[{Liu and Dang(2025{\natexlab{a}})}]{liu2025finpos}
+Liu, B.; and Dang, R. 2025{\natexlab{a}}.
+\newblock {FinPos}: A Position-Aware Trading Agent System for Real Financial
+  Markets.
+\newblock arXiv:2510.27251.
+
+\bibitem[{Liu and Dang(2025{\natexlab{b}})}]{liu2025finrs}
+Liu, B.; and Dang, R. 2025{\natexlab{b}}.
+\newblock {FINRS}: A Risk-Sensitive Trading Framework for Real Financial
+  Markets.
+\newblock arXiv:2511.12599.
 
 \bibitem[{Lopez~de Prado(2016)}]{lopezdeprado2016hrp}
 Lopez~de Prado, M. 2016.
@@ -61,12 +98,18 @@ Markowitz, H.~M. 1952.
 \newblock Portfolio Selection.
 \newblock \emph{The Journal of Finance}, 7(1): 77--91.
 
-\bibitem[{Schick et~al.(2023)Schick, Dwivedi-Yu, Dessi, Raileanu, Lomeli,
-  Zettlemoyer, Cancedda, and Scialom}]{schick2023toolformer}
-Schick, T.; Dwivedi-Yu, J.; Dessi, R.; Raileanu, R.; Lomeli, M.; Zettlemoyer,
-  L.; Cancedda, N.; and Scialom, T. 2023.
-\newblock {Toolformer}: Language Models Can Teach Themselves to Use Tools.
-\newblock arXiv:2302.04761.
+\bibitem[{Qu and Chen(2026)}]{qu2026clqt}
+Qu, B.; and Chen, M. 2026.
+\newblock {CLQT}: A Closed-Loop, Cost-Aware, Strategy-Consistent Benchmark for
+  Diagnostic Evaluation of {LLM} Portfolio-Management Agents.
+\newblock arXiv:2606.29771.
+
+\bibitem[{Rashid et~al.(2026)Rashid, Hong, Ding, and
+  Hossain}]{rashid2026finanalyst}
+Rashid, M.; Hong, L.; Ding, J.; and Hossain, K. S. M.~T. 2026.
+\newblock {Fin-Analyst} at {FinMMEval} 2026 Task 3: A Live Hybrid Trading Agent
+  with {LLM} Specialists and Rule-Based Signals.
+\newblock arXiv:2607.12233.
 
 \bibitem[{Shinn et~al.(2023)Shinn, Cassano, Berman, Gopinath, Narasimhan, and
   Yao}]{shinn2023reflexion}
@@ -92,13 +135,11 @@ Xiao, Y.; Sun, E.; Luo, D.; and Wang, W. 2024.
 \newblock {TradingAgents}: Multi-Agents {LLM} Financial Trading Framework.
 \newblock arXiv:2412.20138.
 
-\bibitem[{Yang et~al.(2024)Yang, Zhang, Wang, Guo, Zhang, Lin, Wang, Zhou,
-  Guan, Zhang, and Wang}]{yang2024finrobot}
-Yang, H.; Zhang, B.; Wang, N.; Guo, C.; Zhang, X.; Lin, L.; Wang, J.; Zhou, T.;
-  Guan, M.; Zhang, R.; and Wang, C.~D. 2024.
-\newblock {FinRobot}: An Open-Source {AI} Agent Platform for Financial
-  Applications using Large Language Models.
-\newblock arXiv:2405.14767.
+\bibitem[{Yao and Zheng(2026)}]{yao2026execution}
+Yao, J.; and Zheng, Z. 2026.
+\newblock Beyond Agent Architecture: Execution Assumptions and Reproducibility
+  in {LLM}-Based Trading Systems.
+\newblock arXiv:2606.08285.
 
 \bibitem[{Yao et~al.(2022)Yao, Zhao, Yu, Du, Shafran, Narasimhan, and
   Cao}]{yao2022react}
@@ -137,5 +178,20 @@ Zhang, W.; Zhao, L.; Xia, H.; Sun, S.; Sun, J.; Qin, M.; Li, X.; Zhao, Y.;
   Diversified, and Generalist.
 \newblock In \emph{Proceedings of the 30th {ACM} {SIGKDD} Conference on
   Knowledge Discovery and Data Mining (KDD '24)}, 4314--4325. Barcelona, Spain.
+
+\bibitem[{Zhang et~al.(2025)Zhang, Goel, Ahmad, and
+  Szabo}]{zhang2025regimefolio}
+Zhang, Y.; Goel, D.; Ahmad, H.; and Szabo, C. 2025.
+\newblock {RegimeFolio}: A Regime Aware {ML} System for Sectoral Portfolio
+  Optimization in Dynamic Markets.
+\newblock arXiv:2510.14986.
+
+\bibitem[{Zhu et~al.(2026)Zhu, Zhao, Sun, Luan, Lu, Wang, Li, Jiang, He, and
+  Bai}]{zhu2026ktdfin}
+Zhu, T.; Zhao, W.; Sun, R.; Luan, B.; Lu, J.; Wang, S.; Li, J.; Jiang, D.; He,
+  Y.; and Bai, Z. 2026.
+\newblock From Knowing to Doing: A Memory-Controlled Benchmark for {LLM}
+  Trading Agents on Stock Markets.
+\newblock arXiv:2605.28359.
 
 \end{thebibliography}
